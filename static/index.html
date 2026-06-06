@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Armada Company v2</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -301,6 +301,7 @@
       background: #0d1f30;
       border-bottom: 2px solid #2a4a6a;
       padding: 8px 12px;
+      padding-top: max(8px, calc(8px + env(safe-area-inset-top)));
       align-items: center;
       justify-content: space-between;
       gap: 8px;
@@ -345,6 +346,7 @@
       background: #0d1f30;
       border-top: 2px solid #2a4a6a;
       padding: 8px 12px 10px;
+      padding-bottom: max(10px, calc(10px + env(safe-area-inset-bottom)));
       flex-shrink: 0;
     }
 
@@ -406,6 +408,8 @@
       body {
         flex-direction: column;
         overflow: hidden;
+        height: 100vh;
+        height: 100dvh;
       }
 
       #mobile-top-bar { display: flex; }
