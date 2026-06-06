@@ -439,10 +439,6 @@ function renderCanvas() {
     drawShip(ship, true, selectedShipIndex === idx);
   });
 
-  // Ghost ship in MovePending mode
-  if (actionMode === MODE_MOVE_PENDING && hoveredCell && selectedShipIndex !== null) {
-    drawGhostShip();
-  }
 
   // Markers
   for (const cell of gameState.grid) {
@@ -509,33 +505,6 @@ function drawMissileOverlay() {
       });
     }
   }
-}
-
-function drawGhostShip() {
-  const ship = gameState.player_ships[selectedShipIndex];
-  if (!ship) return;
-  const bx = ship.bridge_pos.x, by = ship.bridge_pos.y;
-  const positions = getOccupiedPositions(ship);
-  const dx = hoveredCell.x - bx;
-  const dy = hoveredCell.y - by;
-  const fuelCost = ship.size || ship.cells.length;
-
-  ctx.globalAlpha = 0.4;
-  positions.forEach((pos, i) => {
-    const nx = pos.x + dx, ny = pos.y + dy;
-    if (nx < 0 || nx >= GRID_WIDTH || ny < 0 || ny >= GRID_HEIGHT) return;
-    ctx.fillStyle = i === 0 ? '#2a6aff' : '#1a4a8a';
-    ctx.fillRect(nx * CELL + 4, ny * CELL + 4, CELL - 8, CELL - 8);
-  });
-  ctx.globalAlpha = 1.0;
-
-  // Fuel cost label near bridge
-  const ghostBx = hoveredCell.x, ghostBy = hoveredCell.y;
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.floor(CELL * 0.3)}px monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`⛽${fuelCost}`, ghostBx * CELL + CELL / 2, ghostBy * CELL + 2);
 }
 
 function buildOccupiedMap(ships) {
@@ -808,7 +777,7 @@ function onCanvasClick(e) {
   if (found !== null) {
     const ship = gameState.player_ships[found];
     // Click on bridge (cellIndex === 0) = enter move mode
-    if (cellIndex === 0 && ship.state !== 'dead' && ship.state !== 'dying' && !ship.moved) {
+    if (cellIndex === 0 && ship.state !== 'dead' && ship.state !== 'dying' && !ship.moved_this_turn) {
       selectedShipIndex = found;
       validMoveCells = getReachableCells(ship);
       actionMode = MODE_MOVE_PATH;
