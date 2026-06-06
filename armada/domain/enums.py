@@ -21,9 +21,9 @@ class Direction(Enum):
     West  = "W"
 
 class ShipState(Enum):
-    Alive  = "alive"
+    Active = "active"
     Dying  = "dying"
-    Sunk   = "sunk"
+    Dead   = "dead"
 
 class TerrainHeight(Enum):
     DeepSea      = 0

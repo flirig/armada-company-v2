@@ -4,18 +4,18 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from armada.domain.factories import create_battle_state
-from armada.domain.enums import Direction, ShipState, CellType
+from armada.domain.enums import Direction, ShipState, CellType, ModuleType
 from armada.domain.models import BattleState, GridPos
 from armada.domain.movement import MovementValidator
 from armada.domain.modules import fire, apply_aa_intercept
 from armada.domain.ai import AiController
 from armada.domain.battle_loop import (
-    begin_player_turn, end_player_turn, apply_damage_to_ships, check_victory
+    begin_player_turn, end_player_turn, end_ai_turn,
+    apply_damage_to_ships, check_victory, ship_at_port, ship_near_oilrig,
 )
 
 router = APIRouter(prefix="/game")
 
-# In-memory session store
 _sessions: dict[str, BattleState] = {}
 
 
@@ -27,10 +27,10 @@ class NewGameRequest(BaseModel):
 class ActionRequest(BaseModel):
     type: str  # "move" | "rotate" | "fire" | "end_turn"
     ship_index: int = 0
-    direction: str | None = None  # N/E/S/W for move/rotate
-    clockwise: bool = True  # for rotate
-    module_cell_index: int | None = None  # for fire
-    target: dict | None = None  # for ballistic_missile
+    direction: str | None = None
+    clockwise: bool = True
+    module_cell_index: int | None = None
+    target: dict | None = None
 
 
 def _snapshot(state: BattleState) -> dict:
@@ -54,6 +54,7 @@ def _snapshot(state: BattleState) -> dict:
             ],
             "moved": ship.moved_this_turn,
             "fired": ship.fired_this_turn,
+            "size": len(ship.cells),
         }
 
     grid = []
@@ -74,6 +75,11 @@ def _snapshot(state: BattleState) -> dict:
         "ai_ships": [ship_dict(s, i) for i, s in enumerate(state.ai_admiral.armada.ships)],
         "grid": grid,
         "victory": victory,
+        "player_profile": state.player_admiral.profile,
+        "player_stats": {
+            "fuel_per_turn":   state.player_admiral.stats.fuel_per_turn,
+            "supply_per_turn": state.player_admiral.stats.supply_per_turn,
+        },
     }
 
 
@@ -99,6 +105,9 @@ async def action(session_id: str, req: ActionRequest):
     if not state:
         raise HTTPException(404, "Session not found")
 
+    if state.phase not in ("player", "ai"):
+        return {"ok": False, "error": "game_over", "state": _snapshot(state)}
+
     if state.phase != "player":
         return {"ok": False, "error": "not_player_turn", "state": _snapshot(state)}
 
@@ -107,22 +116,22 @@ async def action(session_id: str, req: ActionRequest):
         return {"ok": False, "error": "game_over", "state": _snapshot(state)}
 
     player_ships = state.player_admiral.armada.ships
-    ai_ships = state.ai_admiral.armada.ships
-    all_ships = player_ships + ai_ships
+    ai_ships     = state.ai_admiral.armada.ships
+    all_ships    = player_ships + ai_ships
 
     if req.type == "end_turn":
         end_player_turn(state)
-        AiController.execute_turn(state)
-        state.turn_number += 1
-        begin_player_turn(state)
+        if state.phase == "ai":
+            AiController.execute_turn(state)
+            end_ai_turn(state)
         return {"ok": True, "error": None, "state": _snapshot(state)}
 
     if req.ship_index >= len(player_ships):
         return {"ok": False, "error": "invalid_ship_index", "state": _snapshot(state)}
 
     ship = player_ships[req.ship_index]
-    if ship.state == ShipState.Sunk:
-        return {"ok": False, "error": "ship_sunk", "state": _snapshot(state)}
+    if ship.state == ShipState.Dead:
+        return {"ok": False, "error": "ship_dead", "state": _snapshot(state)}
 
     if req.type == "move":
         if req.direction is None:
@@ -131,26 +140,26 @@ async def action(session_id: str, req: ActionRequest):
             direction = Direction(req.direction)
         except ValueError:
             return {"ok": False, "error": "invalid_direction", "state": _snapshot(state)}
-        fuel_cost = len(ship.cells)
-        if ship.moved_this_turn:
-            return {"ok": False, "error": "already_moved", "state": _snapshot(state)}
-        if ship.fired_this_turn:
-            return {"ok": False, "error": "already_fired", "state": _snapshot(state)}
+        if not ship.can_move:
+            return {"ok": False, "error": "cannot_move", "state": _snapshot(state)}
+        # OilRig adjacency: free first move
+        at_oilrig = ship_near_oilrig(ship, state.battlefield)
+        fuel_cost = 0 if (ship_at_port(ship, state.battlefield) or at_oilrig) and not ship.moved_this_turn else len(ship.cells)
         if not state.turn_budget.spend_fuel(fuel_cost):
             return {"ok": False, "error": "insufficient_fuel", "state": _snapshot(state)}
-        if not MovementValidator.is_valid_move(ship, direction, all_ships, state.battlefield):
-            state.turn_budget.fuel += fuel_cost  # refund
+        if not MovementValidator.is_valid_move(ship, direction, all_ships, state.battlefield, is_player=True):
+            state.turn_budget.fuel += fuel_cost
             return {"ok": False, "error": "invalid_position", "state": _snapshot(state)}
         MovementValidator.apply_move(ship, direction)
         return {"ok": True, "error": None, "state": _snapshot(state)}
 
     if req.type == "rotate":
+        if not ship.can_move:
+            return {"ok": False, "error": "cannot_move", "state": _snapshot(state)}
         fuel_cost = len(ship.cells)
-        if ship.fired_this_turn:
-            return {"ok": False, "error": "already_fired", "state": _snapshot(state)}
         if not state.turn_budget.spend_fuel(fuel_cost):
             return {"ok": False, "error": "insufficient_fuel", "state": _snapshot(state)}
-        if not MovementValidator.is_valid_rotation(ship, req.clockwise, all_ships, state.battlefield):
+        if not MovementValidator.is_valid_rotation(ship, req.clockwise, all_ships, state.battlefield, is_player=True):
             state.turn_budget.fuel += fuel_cost
             return {"ok": False, "error": "invalid_rotation", "state": _snapshot(state)}
         MovementValidator.apply_rotation(ship, req.clockwise)
@@ -162,15 +171,21 @@ async def action(session_id: str, req: ActionRequest):
         idx = req.module_cell_index
         if idx >= len(ship.cells):
             return {"ok": False, "error": "invalid_cell", "state": _snapshot(state)}
+        if not ship.can_fire:
+            return {"ok": False, "error": "cannot_fire", "state": _snapshot(state)}
         cell = ship.cells[idx]
         if cell.cell_type != CellType.Weapon or cell.hp <= 0:
             return {"ok": False, "error": "cell_not_weapon", "state": _snapshot(state)}
         if cell.fired_this_turn:
             return {"ok": False, "error": "module_already_fired", "state": _snapshot(state)}
-        if not state.turn_budget.spend_supply():
+        if cell.module_type in ship.activated_modules:
+            return {"ok": False, "error": "module_type_already_activated", "state": _snapshot(state)}
+        # Port: fire is free
+        supply_cost = 0 if ship_at_port(ship, state.battlefield) else 1
+        if not state.turn_budget.spend_supply(supply_cost):
             return {"ok": False, "error": "insufficient_supply", "state": _snapshot(state)}
         occupied = ship.occupied_cells()
-        gun_pos = occupied[idx]
+        gun_pos  = occupied[idx]
         tgt = None
         if req.target:
             tgt = GridPos(req.target["x"], req.target["y"])
@@ -180,6 +195,7 @@ async def action(session_id: str, req: ActionRequest):
         apply_damage_to_ships(impacts, ai_ships, state.battlefield)
         cell.fired_this_turn = True
         ship.fired_this_turn = True
+        ship.activated_modules.add(cell.module_type)
         return {"ok": True, "error": None, "state": _snapshot(state)}
 
     return {"ok": False, "error": "unknown_action", "state": _snapshot(state)}

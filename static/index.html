@@ -107,6 +107,7 @@
     .ship-card:hover { border-color: #4a7aaa; }
     .ship-card.selected { border-color: #5a9aff; background: #102030; }
     .ship-card.sunk { opacity: 0.4; cursor: default; }
+    .ship-card.dead { opacity: 0.4; cursor: default; }
     .ship-card.dying { border-color: #aa4a00; }
 
     .ship-card-header {
@@ -118,9 +119,9 @@
 
     .ship-name { font-weight: bold; color: #c0d8f0; }
     .ship-state { font-size: 10px; padding: 2px 5px; border-radius: 3px; }
-    .state-alive { background: #1a4a2a; color: #4aaa6a; }
-    .state-dying { background: #4a2a00; color: #ffaa00; }
-    .state-sunk  { background: #2a0a0a; color: #aa3a3a; }
+    .state-active { background: #1a4a2a; color: #4aaa6a; }
+    .state-dying  { background: #4a2a00; color: #ffaa00; }
+    .state-dead   { background: #2a0a0a; color: #aa3a3a; }
 
     .ship-cells {
       display: flex;
@@ -431,7 +432,7 @@
   </div>
 
   <div id="game-area">
-    <canvas id="canvas" width="600" height="1280"></canvas>
+    <canvas id="canvas" width="540" height="1152"></canvas>
   </div>
 
   <!-- Mobile ship panel: shown when a ship is selected (hidden on desktop) -->
@@ -497,6 +498,11 @@
     <div class="panel">
       <h3>Fleet</h3>
       <div id="ship-list"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Action Log</h3>
+      <div id="action-log" style="font-size:11px;color:#8aa8c0;line-height:1.7;"></div>
     </div>
 
     <div class="panel">

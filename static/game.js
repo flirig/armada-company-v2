@@ -1,25 +1,17 @@
 // Armada Company v2 — game client
 'use strict';
 
-const GRID_WIDTH = 15;
+const GRID_WIDTH  = 15;
 const GRID_HEIGHT = 32;
-const CELL = 40;
-const CANVAS_WIDTH = GRID_WIDTH * CELL; // 600px
-const CANVAS_HEIGHT = GRID_HEIGHT * CELL; // 1280px
+const CELL        = 36;
+const CANVAS_WIDTH  = GRID_WIDTH  * CELL; // 540px
+const CANVAS_HEIGHT = GRID_HEIGHT * CELL; // 1152px
 
 const TERRAIN_COLORS = {
   0: '#1a3a5c', // DeepSea
   1: '#2d6a8a', // ShallowWater
   2: '#5a7a4a', // Land
   3: '#6a5a4a', // Mountain
-};
-
-const CELL_TYPE_COLORS = {
-  bridge: '#4a7aff',
-  weapon: '#ff8844',
-  armor:  '#6688aa',
-  supply: '#44aa66',
-  hull:   '#445566',
 };
 
 const MODULE_LABELS = {
@@ -30,29 +22,36 @@ const MODULE_LABELS = {
   aa_gun:           'AAG',
 };
 
+// ActionMode
+const MODE_NONE            = 'none';
+const MODE_MOVE_PENDING    = 'move_pending';
+const MODE_TARGETING_MISSILE = 'targeting_missile';
+
 // State
-let sessionId = null;
-let gameState = null;
+let sessionId        = null;
+let gameState        = null;
 let selectedShipIndex = null;
-let hoveredCell = null;
+let hoveredCell       = null;
 let canvas, ctx;
+let actionMode       = MODE_NONE;
+let pendingFireInfo  = null; // { shipIndex, cellIndex } for ballistic
+let validMoveCells   = [];
+let actionLog        = [];
+let playerFuelMax    = 5;
+let playerSupplyMax  = 5;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('canvas');
+  canvas.width  = CANVAS_WIDTH;
+  canvas.height = CANVAS_HEIGHT;
   ctx = canvas.getContext('2d');
 
   canvas.addEventListener('mousemove', onCanvasMouseMove);
-  canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('click',     onCanvasClick);
   canvas.addEventListener('touchstart', onCanvasTouchStart, { passive: true });
 
-  document.getElementById('btn-move-n').addEventListener('click', () => sendMove('N'));
-  document.getElementById('btn-move-s').addEventListener('click', () => sendMove('S'));
-  document.getElementById('btn-move-w').addEventListener('click', () => sendMove('W'));
-  document.getElementById('btn-move-e').addEventListener('click', () => sendMove('E'));
-  document.getElementById('btn-rotate-cw').addEventListener('click', () => sendRotate(true));
-  document.getElementById('btn-rotate-ccw').addEventListener('click', () => sendRotate(false));
   document.getElementById('btn-end-turn').addEventListener('click', sendEndTurn);
   document.getElementById('btn-new-game').addEventListener('click', startNewGame);
   document.getElementById('mobile-end-turn').addEventListener('click', sendEndTurn);
@@ -79,11 +78,15 @@ async function startNewGame() {
   hideVictory();
   setStatus('Starting new game...', 'info');
   selectedShipIndex = null;
+  actionMode = MODE_NONE;
+  pendingFireInfo = null;
+  validMoveCells = [];
+  actionLog = [];
   try {
     const data = await apiPost('/game/new', { admiral_profile: 'balanced' });
     sessionId = data.session_id;
     applyState(data.state);
-    setStatus('Game started! Select a ship and act.', 'ok');
+    setStatus('Game started! Click a ship to select, then act.', 'ok');
   } catch (e) {
     setStatus('Failed to connect to server: ' + e.message, 'err');
   }
@@ -108,49 +111,73 @@ async function sendAction(body) {
 async function sendMove(direction) {
   if (selectedShipIndex === null) { setStatus('Select a ship first.', 'err'); return; }
   const res = await sendAction({ type: 'move', ship_index: selectedShipIndex, direction });
-  if (res && res.ok) setStatus(`Ship moved ${direction}.`, 'ok');
+  if (res && res.ok) {
+    addLog(`Ship moved ${direction}`);
+    setStatus(`Ship moved ${direction}.`, 'ok');
+    actionMode = MODE_NONE;
+  }
 }
 
 async function sendRotate(clockwise) {
   if (selectedShipIndex === null) { setStatus('Select a ship first.', 'err'); return; }
   const res = await sendAction({ type: 'rotate', ship_index: selectedShipIndex, clockwise });
-  if (res && res.ok) setStatus(`Ship rotated ${clockwise ? 'CW' : 'CCW'}.`, 'ok');
+  if (res && res.ok) {
+    addLog(`Ship rotated ${clockwise ? 'CW' : 'CCW'}`);
+    setStatus(`Ship rotated ${clockwise ? 'CW' : 'CCW'}.`, 'ok');
+  }
 }
 
 async function sendFire(shipIndex, cellIndex) {
   const ship = gameState.player_ships[shipIndex];
   const cell = ship.cells[cellIndex];
-  const body = { type: 'fire', ship_index: shipIndex, module_cell_index: cellIndex };
 
-  // Ballistic missile needs a target — use hovered cell or prompt
   if (cell.module === 'ballistic_missile') {
-    if (!hoveredCell) {
-      setStatus('Hover over a target cell on the grid, then click Fire.', 'info');
-      // store pending fire for click
-      pendingFire = { shipIndex, cellIndex };
-      setStatus('Click target cell for Ballistic Missile.', 'info');
-      return;
-    }
-    body.target = { x: hoveredCell.x, y: hoveredCell.y };
+    // Enter targeting mode
+    pendingFireInfo = { shipIndex, cellIndex };
+    actionMode = MODE_TARGETING_MISSILE;
+    setStatus('Click target cell for Ballistic Missile (range 10).', 'info');
+    renderCanvas();
+    return;
   }
 
+  const body = { type: 'fire', ship_index: shipIndex, module_cell_index: cellIndex };
   const res = await sendAction(body);
-  if (res && res.ok) setStatus(`Fired ${cell.module || cell.type}!`, 'ok');
-  else if (res) setStatus('Fire failed: ' + res.error, 'err');
+  if (res && res.ok) {
+    addLog(`Fired ${MODULE_LABELS[cell.module] || cell.module}`);
+    setStatus(`Fired ${MODULE_LABELS[cell.module] || cell.module}!`, 'ok');
+  } else if (res) {
+    setStatus('Fire failed: ' + res.error, 'err');
+  }
 }
 
-let pendingFire = null;
-
 async function sendEndTurn() {
+  if (!gameState || gameState.phase !== 'player') return;
   setStatus('Ending turn...', 'info');
+  actionMode = MODE_NONE;
+  pendingFireInfo = null;
   const res = await sendAction({ type: 'end_turn' });
-  if (res && res.ok) setStatus('AI turn complete. Your move!', 'ok');
+  if (res && res.ok) {
+    addLog('--- End of turn ---');
+    setStatus('AI turn complete. Your move!', 'ok');
+  }
+}
+
+function cancelMode() {
+  actionMode = MODE_NONE;
+  pendingFireInfo = null;
+  validMoveCells = [];
+  setStatus('Action cancelled.', 'info');
+  renderCanvas();
 }
 
 // ── State application ─────────────────────────────────────────────────────────
 
 function applyState(state) {
   gameState = state;
+  if (state.player_stats) {
+    playerFuelMax   = state.player_stats.fuel_per_turn;
+    playerSupplyMax = state.player_stats.supply_per_turn;
+  }
   updateSidebar();
   renderCanvas();
   updateMobileTopBar();
@@ -158,27 +185,34 @@ function applyState(state) {
   if (state.victory) showVictory(state.victory);
 }
 
+function addLog(msg) {
+  actionLog.unshift(msg);
+  if (actionLog.length > 5) actionLog.length = 5;
+  const el = document.getElementById('action-log');
+  if (el) el.innerHTML = actionLog.map(m => `<div>${m}</div>`).join('');
+}
+
 function updateSidebar() {
   if (!gameState) return;
   document.getElementById('turn-number').textContent = gameState.turn_number;
-  document.getElementById('admiral-profile').textContent = 'balanced';
+  document.getElementById('admiral-profile').textContent = gameState.player_profile || 'balanced';
 
-  const fuel = gameState.budget.fuel;
+  const fuel   = gameState.budget.fuel;
   const supply = gameState.budget.supply;
-  // Estimate max from first player ship fuel_per_turn — use static 5 as balanced default
-  const fuelMax = 5;
-  const supplyMax = 5;
 
-  document.getElementById('fuel-val').textContent = `${fuel} / ${fuelMax}`;
-  document.getElementById('supply-val').textContent = `${supply} / ${supplyMax}`;
-  document.getElementById('fuel-bar').style.width = `${Math.min(100, (fuel / fuelMax) * 100)}%`;
-  document.getElementById('supply-bar').style.width = `${Math.min(100, (supply / supplyMax) * 100)}%`;
+  document.getElementById('fuel-val').textContent   = `${fuel} / ${playerFuelMax}`;
+  document.getElementById('supply-val').textContent = `${supply} / ${playerSupplyMax}`;
+  document.getElementById('fuel-bar').style.width   = `${Math.min(100, (fuel / playerFuelMax) * 100)}%`;
+  document.getElementById('supply-bar').style.width = `${Math.min(100, (supply / playerSupplyMax) * 100)}%`;
 
-  const phase = gameState.phase;
+  const phase   = gameState.phase;
   const phaseEl = document.getElementById('turn-phase');
-  phaseEl.textContent = phase === 'player' ? 'Your Turn' : 'AI Turn';
+  phaseEl.textContent = phase === 'player' ? 'YOUR TURN' : 'AI TURN';
   phaseEl.style.background = phase === 'player' ? '#1a3a5a' : '#3a1a1a';
-  phaseEl.style.color = phase === 'player' ? '#6aaaff' : '#ff6a6a';
+  phaseEl.style.color       = phase === 'player' ? '#6aaaff' : '#ff6a6a';
+
+  const endBtn = document.getElementById('btn-end-turn');
+  if (endBtn) endBtn.disabled = (phase !== 'player');
 
   renderShipList();
 }
@@ -188,17 +222,18 @@ function renderShipList() {
   list.innerHTML = '';
 
   gameState.player_ships.forEach((ship, idx) => {
+    const isDead  = ship.state === 'dead';
+    const isDying = ship.state === 'dying';
     const card = document.createElement('div');
     card.className = 'ship-card' +
-      (ship.state === 'sunk' ? ' sunk' : '') +
-      (ship.state === 'dying' ? ' dying' : '') +
+      (isDead  ? ' dead'     : '') +
+      (isDying ? ' dying'    : '') +
       (selectedShipIndex === idx ? ' selected' : '');
 
-    // Header
     const header = document.createElement('div');
     header.className = 'ship-card-header';
 
-    const nameEl = document.createElement('span');
+    const nameEl  = document.createElement('span');
     nameEl.className = 'ship-name';
     nameEl.textContent = shipTypeName(ship);
 
@@ -210,19 +245,19 @@ function renderShipList() {
     header.appendChild(stateEl);
     card.appendChild(header);
 
-    // Cells
     const cellsEl = document.createElement('div');
     cellsEl.className = 'ship-cells';
     ship.cells.forEach(cell => {
       const badge = document.createElement('span');
       badge.className = `cell-badge cell-${cell.type}` + (cell.hp === 0 ? ' cell-dead' : '');
       badge.title = `${cell.type}${cell.module ? ' / ' + cell.module : ''} HP:${cell.hp}/${cell.hp_max}`;
-      badge.textContent = cell.module ? MODULE_LABELS[cell.module] || cell.module.substring(0,3).toUpperCase() : cell.type.substring(0,3).toUpperCase();
+      badge.textContent = cell.module
+        ? MODULE_LABELS[cell.module] || cell.module.substring(0,3).toUpperCase()
+        : cell.type.substring(0,3).toUpperCase();
       cellsEl.appendChild(badge);
     });
     card.appendChild(cellsEl);
 
-    // Fire buttons for weapon cells
     const fireRow = document.createElement('div');
     fireRow.className = 'fire-buttons';
     ship.cells.forEach((cell, ci) => {
@@ -230,7 +265,8 @@ function renderShipList() {
       const btn = document.createElement('button');
       btn.className = 'btn-fire';
       btn.textContent = `Fire ${MODULE_LABELS[cell.module] || cell.module}`;
-      const disabled = cell.hp === 0 || cell.fired_this_turn || ship.state === 'sunk' || gameState.budget.supply === 0;
+      const disabled = cell.hp === 0 || cell.fired_this_turn || isDead ||
+                       gameState.budget.supply === 0 || ship.state === 'dying' && isDead;
       btn.disabled = disabled;
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -241,12 +277,13 @@ function renderShipList() {
     });
     if (fireRow.children.length > 0) card.appendChild(fireRow);
 
-    // Select on click
     card.addEventListener('click', () => {
-      if (ship.state === 'sunk') return;
-      selectedShipIndex = selectedShipIndex === idx ? null : idx;
+      if (isDead) return;
+      selectedShipIndex = (selectedShipIndex === idx) ? null : idx;
+      actionMode = MODE_NONE;
       renderShipList();
       renderCanvas();
+      renderMobileShipPanel();
     });
 
     list.appendChild(card);
@@ -255,12 +292,13 @@ function renderShipList() {
 
 function shipTypeName(ship) {
   const weapons = ship.cells.filter(c => c.type === 'weapon').map(c => c.module);
-  if (weapons.includes('bomber')) return 'Carrier';
-  if (ship.cells.length >= 5) return 'Battleship';
-  if (weapons.includes('ballistic_missile') && ship.cells.length >= 3) return 'Cruiser';
-  if (weapons.includes('torpedo') && ship.cells.length >= 3) return 'Destroyer';
-  if (weapons.includes('mortar') && ship.cells.length <= 2) return 'Corvette';
-  if (weapons.includes('ballistic_missile')) return 'Missile Boat';
+  const size = ship.cells.length;
+  if (weapons.includes('bomber'))                             return 'Carrier';
+  if (size >= 4 && weapons.includes('mortar'))               return 'Battleship';
+  if (weapons.includes('ballistic_missile') && size >= 3)    return 'Cruiser';
+  if (weapons.includes('torpedo') && size >= 3)              return 'Destroyer';
+  if (weapons.includes('ballistic_missile') && size <= 2)    return 'Corvette';
+  if (weapons.includes('torpedo') && size <= 2)              return 'Missile Boat';
   return 'Warship';
 }
 
@@ -271,90 +309,173 @@ function renderCanvas() {
 
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  // Build grid lookup
   const gridMap = {};
   for (const cell of gameState.grid) {
     gridMap[`${cell.x},${cell.y}`] = cell;
   }
 
-  // Build occupied map
   const playerOccupied = buildOccupiedMap(gameState.player_ships);
-  const aiOccupied = buildOccupiedMap(gameState.ai_ships);
+  const aiOccupied     = buildOccupiedMap(gameState.ai_ships);
 
   // Draw terrain
   for (let y = 0; y < GRID_HEIGHT; y++) {
     for (let x = 0; x < GRID_WIDTH; x++) {
-      const cell = gridMap[`${x},${y}`];
+      const cell   = gridMap[`${x},${y}`];
       const height = cell ? cell.height : 0;
       ctx.fillStyle = TERRAIN_COLORS[height] || '#1a3a5c';
       ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
 
-      // Grid line
       ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      ctx.lineWidth = 0.5;
+      ctx.lineWidth   = 0.5;
       ctx.strokeRect(x * CELL, y * CELL, CELL, CELL);
 
-      // Objects
-      if (cell && cell.obj) {
-        drawObject(x, y, cell.obj);
-      }
-
-      // Effects
-      if (cell && cell.effects && cell.effects.includes('fire')) {
-        drawFire(x, y);
-      }
+      if (cell && cell.obj) drawObject(x, y, cell.obj);
+      if (cell && cell.effects && cell.effects.includes('fire')) drawFire(x, y);
     }
   }
 
-  // Draw AI ships
-  gameState.ai_ships.forEach((ship, idx) => {
-    if (ship.state === 'sunk') return;
+  // Zone divider lines
+  ctx.strokeStyle = 'rgba(100,180,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, 16 * CELL); ctx.lineTo(CANVAS_WIDTH, 16 * CELL);
+  ctx.moveTo(0, 18 * CELL); ctx.lineTo(CANVAS_WIDTH, 18 * CELL);
+  ctx.stroke();
+
+  // MovePending overlay
+  if (actionMode === MODE_MOVE_PENDING && selectedShipIndex !== null) {
+    drawMoveOverlay();
+  }
+
+  // TargetingMissile overlay
+  if (actionMode === MODE_TARGETING_MISSILE && pendingFireInfo) {
+    drawMissileOverlay();
+  }
+
+  // AI ships
+  gameState.ai_ships.forEach(ship => {
+    if (ship.state === 'dead') return;
     drawShip(ship, false, false);
   });
 
-  // Draw player ships
+  // Player ships
   gameState.player_ships.forEach((ship, idx) => {
-    if (ship.state === 'sunk') return;
-    const isSelected = selectedShipIndex === idx;
-    drawShip(ship, true, isSelected);
+    if (ship.state === 'dead') return;
+    drawShip(ship, true, selectedShipIndex === idx);
   });
 
-  // Draw markers
+  // Ghost ship in MovePending mode
+  if (actionMode === MODE_MOVE_PENDING && hoveredCell && selectedShipIndex !== null) {
+    drawGhostShip();
+  }
+
+  // Markers
   for (const cell of gameState.grid) {
     if (cell.markers && cell.markers.length > 0) {
-      for (const marker of cell.markers) {
-        drawMarker(cell.x, cell.y, marker);
-      }
+      for (const marker of cell.markers) drawMarker(cell.x, cell.y, marker);
     }
   }
 
-  // Hovered cell highlight
+  // Hover highlight
   if (hoveredCell) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth   = 1.5;
     ctx.strokeRect(hoveredCell.x * CELL + 1, hoveredCell.y * CELL + 1, CELL - 2, CELL - 2);
   }
 
-  // Selection highlight on selected ship cells
+  // Selection highlight
   if (selectedShipIndex !== null) {
     const ship = gameState.player_ships[selectedShipIndex];
-    if (ship && ship.state !== 'sunk') {
+    if (ship && ship.state !== 'dead') {
       const positions = getOccupiedPositions(ship);
       positions.forEach(pos => {
         ctx.strokeStyle = '#5a9aff';
-        ctx.lineWidth = 2;
+        ctx.lineWidth   = 2;
         ctx.strokeRect(pos.x * CELL + 1, pos.y * CELL + 1, CELL - 2, CELL - 2);
       });
     }
   }
 }
 
+function drawMoveOverlay() {
+  const ship = gameState.player_ships[selectedShipIndex];
+  if (!ship) return;
+  const dirs = ['N','S','E','W'];
+  const deltas = {N:[0,-1], S:[0,1], E:[1,0], W:[-1,0]};
+  dirs.forEach(d => {
+    const [dx, dy] = deltas[d];
+    // Highlight just the adjacent cells in player zone as valid move hints
+    const np = { x: ship.bridge_pos.x + dx, y: ship.bridge_pos.y + dy };
+    if (np.x < 0 || np.x >= GRID_WIDTH || np.y < 1 || np.y > 15) return;
+    ctx.fillStyle = 'rgba(0,200,80,0.18)';
+    ctx.fillRect(np.x * CELL, np.y * CELL, CELL, CELL);
+    ctx.strokeStyle = 'rgba(0,220,80,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(np.x * CELL, np.y * CELL, CELL, CELL);
+  });
+}
+
+function drawMissileOverlay() {
+  const ship = gameState.player_ships[pendingFireInfo.shipIndex];
+  if (!ship) return;
+  const bx = ship.bridge_pos.x, by = ship.bridge_pos.y;
+  for (let y = 0; y < GRID_HEIGHT; y++) {
+    for (let x = 0; x < GRID_WIDTH; x++) {
+      const dist = Math.abs(x - bx) + Math.abs(y - by);
+      if (dist <= 10) {
+        ctx.strokeStyle = 'rgba(255,160,0,0.4)';
+        ctx.lineWidth   = 1;
+        ctx.strokeRect(x * CELL, y * CELL, CELL, CELL);
+      }
+    }
+  }
+  // Preview explosion on hover
+  if (hoveredCell) {
+    const dist = Math.abs(hoveredCell.x - bx) + Math.abs(hoveredCell.y - by);
+    if (dist <= 10) {
+      [[0,0],[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx, dy]) => {
+        const px = hoveredCell.x + dx, py = hoveredCell.y + dy;
+        if (px >= 0 && px < GRID_WIDTH && py >= 0 && py < GRID_HEIGHT) {
+          ctx.fillStyle = 'rgba(255,120,0,0.3)';
+          ctx.fillRect(px * CELL, py * CELL, CELL, CELL);
+        }
+      });
+    }
+  }
+}
+
+function drawGhostShip() {
+  const ship = gameState.player_ships[selectedShipIndex];
+  if (!ship) return;
+  const bx = ship.bridge_pos.x, by = ship.bridge_pos.y;
+  const positions = getOccupiedPositions(ship);
+  const dx = hoveredCell.x - bx;
+  const dy = hoveredCell.y - by;
+  const fuelCost = ship.size || ship.cells.length;
+
+  ctx.globalAlpha = 0.4;
+  positions.forEach((pos, i) => {
+    const nx = pos.x + dx, ny = pos.y + dy;
+    if (nx < 0 || nx >= GRID_WIDTH || ny < 0 || ny >= GRID_HEIGHT) return;
+    ctx.fillStyle = i === 0 ? '#2a6aff' : '#1a4a8a';
+    ctx.fillRect(nx * CELL + 4, ny * CELL + 4, CELL - 8, CELL - 8);
+  });
+  ctx.globalAlpha = 1.0;
+
+  // Fuel cost label near bridge
+  const ghostBx = hoveredCell.x, ghostBy = hoveredCell.y;
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${Math.floor(CELL * 0.3)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`⛽${fuelCost}`, ghostBx * CELL + CELL / 2, ghostBy * CELL + 2);
+}
+
 function buildOccupiedMap(ships) {
   const map = {};
   ships.forEach((ship, shipIdx) => {
-    if (ship.state === 'sunk') return;
-    const positions = getOccupiedPositions(ship);
-    positions.forEach((pos, cellIdx) => {
+    if (ship.state === 'dead') return;
+    getOccupiedPositions(ship).forEach((pos, cellIdx) => {
       map[`${pos.x},${pos.y}`] = { shipIdx, cellIdx, ship };
     });
   });
@@ -362,7 +483,7 @@ function buildOccupiedMap(ships) {
 }
 
 function getOccupiedPositions(ship) {
-  const deltas = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+  const deltas = { N:[0,-1], S:[0,1], E:[1,0], W:[-1,0] };
   const [dx, dy] = deltas[ship.facing] || [1, 0];
   const bx = -dx, by = -dy;
   const positions = [];
@@ -375,9 +496,16 @@ function getOccupiedPositions(ship) {
   return positions;
 }
 
+function _hpColor(ratio) {
+  if (ratio > 0.66) return null;         // normal — use base color
+  if (ratio > 0.33) return '#2a4a00';    // damaged_light
+  return '#4a1000';                       // damaged_heavy
+}
+
 function drawShip(ship, isPlayer, isSelected) {
   const positions = getOccupiedPositions(ship);
-  const isDying = ship.state === 'dying';
+  const isDying   = ship.state === 'dying';
+  const isHoriz   = ship.facing === 'E' || ship.facing === 'W';
 
   positions.forEach((pos, cellIdx) => {
     const cell = ship.cells[cellIdx];
@@ -385,15 +513,19 @@ function drawShip(ship, isPlayer, isSelected) {
 
     const px = pos.x * CELL;
     const py = pos.y * CELL;
-
-    // Base ship color
-    let baseColor = isPlayer ? '#1a4a8a' : '#6a1a1a';
-    if (isDying) baseColor = isPlayer ? '#3a2a00' : '#4a1a00';
-
     const isBridge = cellIdx === 0;
-    if (isBridge) {
-      baseColor = isPlayer ? '#2a6aff' : '#ff3a1a';
-      if (isDying) baseColor = '#aa6600';
+
+    // Base color
+    let baseColor = isPlayer ? '#1a4a8a' : '#6a1a1a';
+    if (isBridge) baseColor = isPlayer ? '#2a6aff' : '#ff3a1a';
+    if (isDying)  baseColor = isBridge ? '#aa6600' : (isPlayer ? '#3a2a00' : '#4a1a00');
+
+    // Damage tinting
+    if (cell && !isDying) {
+      const ratio = cell.hp / cell.hp_max;
+      const dmgColor = _hpColor(ratio);
+      if (dmgColor) baseColor = dmgColor;
+      if (isBridge && dmgColor) baseColor = dmgColor; // bridge also tinted
     }
 
     ctx.fillStyle = baseColor;
@@ -413,21 +545,25 @@ function drawShip(ship, isPlayer, isSelected) {
 
     // Module label
     if (cell && cell.module) {
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.font = `bold ${Math.floor(CELL * 0.22)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(MODULE_LABELS[cell.module] || '?', px + CELL / 2, py + CELL / 2);
     }
 
-    // Bridge arrow indicator
-    if (isBridge) {
-      drawFacingArrow(px + CELL / 2, py + CELL / 2, ship.facing);
-    }
+    // Bridge arrow
+    if (isBridge) drawFacingArrow(px + CELL / 2, py + CELL / 2, ship.facing);
 
     // Fired indicator
     if (cell && cell.fired_this_turn) {
       ctx.fillStyle = 'rgba(255,150,0,0.3)';
+      ctx.fillRect(px + margin, py + margin, CELL - margin * 2, CELL - margin * 2);
+    }
+
+    // Dying flash overlay
+    if (isDying) {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
       ctx.fillRect(px + margin, py + margin, CELL - margin * 2, CELL - margin * 2);
     }
   });
@@ -435,22 +571,21 @@ function drawShip(ship, isPlayer, isSelected) {
 
 function drawFacingArrow(cx, cy, facing) {
   const arrowLen = CELL * 0.28;
-  const deltas = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+  const deltas = { N:[0,-1], S:[0,1], E:[1,0], W:[-1,0] };
   const [dx, dy] = deltas[facing] || [1, 0];
 
   ctx.save();
   ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth   = 1.5;
   ctx.beginPath();
   ctx.moveTo(cx - dx * arrowLen * 0.5, cy - dy * arrowLen * 0.5);
   ctx.lineTo(cx + dx * arrowLen * 0.5, cy + dy * arrowLen * 0.5);
   ctx.stroke();
 
-  // Arrowhead
-  const tipX = cx + dx * arrowLen * 0.5;
-  const tipY = cy + dy * arrowLen * 0.5;
+  const tipX  = cx + dx * arrowLen * 0.5;
+  const tipY  = cy + dy * arrowLen * 0.5;
   const perpX = -dy * arrowLen * 0.3;
-  const perpY = dx * arrowLen * 0.3;
+  const perpY =  dx * arrowLen * 0.3;
   ctx.beginPath();
   ctx.moveTo(tipX, tipY);
   ctx.lineTo(tipX - dx * arrowLen * 0.4 + perpX, tipY - dy * arrowLen * 0.4 + perpY);
@@ -464,25 +599,23 @@ function drawFacingArrow(cx, cy, facing) {
 function drawMarker(gx, gy, marker) {
   const cx = gx * CELL + CELL / 2;
   const cy = gy * CELL + CELL / 2;
-  const r = CELL * 0.2;
+  const r  = CELL * 0.2;
 
   if (marker === 'hit') {
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#ff8800';
+    ctx.fillStyle   = '#ff8800';
     ctx.fill();
     ctx.strokeStyle = '#ffcc00';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth   = 1.5;
     ctx.stroke();
   } else if (marker === 'miss') {
     const s = r;
     ctx.strokeStyle = '#556677';
-    ctx.lineWidth = 2;
+    ctx.lineWidth   = 2;
     ctx.beginPath();
-    ctx.moveTo(cx - s, cy - s);
-    ctx.lineTo(cx + s, cy + s);
-    ctx.moveTo(cx + s, cy - s);
-    ctx.lineTo(cx - s, cy + s);
+    ctx.moveTo(cx - s, cy - s); ctx.lineTo(cx + s, cy + s);
+    ctx.moveTo(cx + s, cy - s); ctx.lineTo(cx - s, cy + s);
     ctx.stroke();
   }
 }
@@ -491,11 +624,31 @@ function drawObject(gx, gy, obj) {
   const cx = gx * CELL + CELL / 2;
   const cy = gy * CELL + CELL / 2;
   ctx.font = `${Math.floor(CELL * 0.5)}px serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  if (obj === 'port') ctx.fillText('⚓', cx, cy);       // anchor
-  else if (obj === 'oil_rig') ctx.fillText('🛢', cx, cy); // oil drum emoji fallback
-  else if (obj === 'mine') ctx.fillText('☢', cx, cy);  // radiation/mine symbol
+  ctx.textAlign     = 'center';
+  ctx.textBaseline  = 'middle';
+  if      (obj === 'port')    ctx.fillText('⚓', cx, cy);
+  else if (obj === 'oil_rig') ctx.fillText('🛢', cx, cy);
+  else if (obj === 'mine') {
+    // Draw mine: circle with spikes
+    ctx.beginPath();
+    ctx.arc(cx, cy, CELL * 0.18, 0, Math.PI * 2);
+    ctx.fillStyle = '#333';
+    ctx.fill();
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+      const r1 = CELL * 0.18, r2 = CELL * 0.28;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      ctx.stroke();
+    }
+  }
+  else if (obj === 'npc_ship') {
+    ctx.fillStyle = '#888';
+    ctx.fillText('⛵', cx, cy);
+  }
 }
 
 function drawFire(gx, gy) {
@@ -503,87 +656,112 @@ function drawFire(gx, gy) {
   const py = gy * CELL;
   ctx.fillStyle = 'rgba(255, 80, 0, 0.35)';
   ctx.fillRect(px, py, CELL, CELL);
-  // Draw flame lines
-  ctx.fillStyle = 'rgba(255, 160, 0, 0.5)';
   ctx.font = `${Math.floor(CELL * 0.5)}px serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign     = 'center';
+  ctx.textBaseline  = 'middle';
   ctx.fillText('🔥', px + CELL / 2, py + CELL / 2);
 }
 
 // ── Event handlers ────────────────────────────────────────────────────────────
 
 function onCanvasMouseMove(e) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
+  const rect   = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
   const scaleY = canvas.height / rect.height;
   const mx = (e.clientX - rect.left) * scaleX;
-  const my = (e.clientY - rect.top) * scaleY;
+  const my = (e.clientY - rect.top)  * scaleY;
   const gx = Math.floor(mx / CELL);
   const gy = Math.floor(my / CELL);
-  if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT) {
-    hoveredCell = { x: gx, y: gy };
-  } else {
-    hoveredCell = null;
-  }
+  hoveredCell = (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT)
+    ? { x: gx, y: gy } : null;
   renderCanvas();
 }
 
 function onCanvasClick(e) {
   if (!gameState || !hoveredCell) return;
 
-  // If there's a pending ballistic fire, fire at this cell
-  if (pendingFire) {
-    const { shipIndex, cellIndex } = pendingFire;
-    pendingFire = null;
+  // TargetingMissile: fire at clicked cell
+  if (actionMode === MODE_TARGETING_MISSILE && pendingFireInfo) {
+    const { shipIndex, cellIndex } = pendingFireInfo;
+    const ship = gameState.player_ships[shipIndex];
+    const dist = Math.abs(hoveredCell.x - ship.bridge_pos.x) +
+                 Math.abs(hoveredCell.y - ship.bridge_pos.y);
+    if (dist > 10) {
+      setStatus('Out of range (max 10).', 'err');
+      return;
+    }
     const body = {
       type: 'fire',
       ship_index: shipIndex,
       module_cell_index: cellIndex,
       target: { x: hoveredCell.x, y: hoveredCell.y },
     };
+    pendingFireInfo = null;
+    actionMode = MODE_NONE;
     sendAction(body).then(res => {
-      if (res && res.ok) setStatus('Ballistic missile fired!', 'ok');
-      else if (res) setStatus('Fire failed: ' + res.error, 'err');
+      if (res && res.ok) {
+        addLog('Ballistic missile fired!');
+        setStatus('Ballistic missile fired!', 'ok');
+      } else if (res) {
+        setStatus('Fire failed: ' + res.error, 'err');
+      }
     });
     return;
   }
 
-  // Check if a player ship is at clicked cell
+  // Click ship cell in MovePending: move there
+  if (actionMode === MODE_MOVE_PENDING && selectedShipIndex !== null) {
+    const ship = gameState.player_ships[selectedShipIndex];
+    const bp   = ship.bridge_pos;
+    const dx   = hoveredCell.x - bp.x;
+    const dy   = hoveredCell.y - bp.y;
+    const dirMap = [[0,-1,'N'],[0,1,'S'],[-1,0,'W'],[1,0,'E']];
+    const entry = dirMap.find(([ex, ey]) => ex === dx && ey === dy);
+    if (entry) {
+      sendMove(entry[2]);
+      return;
+    }
+    // Clicked elsewhere: cancel
+    actionMode = MODE_NONE;
+    renderCanvas();
+    return;
+  }
+
+  // Click player ship to select
   const { x, y } = hoveredCell;
   let found = null;
   gameState.player_ships.forEach((ship, idx) => {
-    if (ship.state === 'sunk') return;
-    const positions = getOccupiedPositions(ship);
-    if (positions.some(p => p.x === x && p.y === y)) {
-      found = idx;
-    }
+    if (ship.state === 'dead') return;
+    if (getOccupiedPositions(ship).some(p => p.x === x && p.y === y)) found = idx;
   });
 
   if (found !== null) {
-    selectedShipIndex = selectedShipIndex === found ? null : found;
+    selectedShipIndex = (selectedShipIndex === found) ? null : found;
+    actionMode = MODE_NONE;
     renderShipList();
     renderCanvas();
     renderMobileShipPanel();
-    if (selectedShipIndex !== null) {
-      setStatus(`Selected ship ${selectedShipIndex + 1}. Use WASD/arrows to move, Q/E to rotate.`, 'info');
-    }
+    if (selectedShipIndex !== null)
+      setStatus(`Ship selected. Use buttons or keyboard to act.`, 'info');
   }
 }
 
 function onKeyDown(e) {
-  if (!gameState || gameState.phase !== 'player') return;
-
-  // Don't intercept when typing in an input
+  if (!gameState) return;
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
   const key = e.key;
 
+  // Esc: cancel mode
+  if (key === 'Escape') { cancelMode(); return; }
+
+  if (gameState.phase !== 'player') return;
+
   const moveKeys = {
-    'w': 'N', 'W': 'N', 'ArrowUp': 'N',
-    's': 'S', 'S': 'S', 'ArrowDown': 'S',
-    'a': 'W', 'A': 'W', 'ArrowLeft': 'W',
-    'd': 'E', 'D': 'E', 'ArrowRight': 'E',
+    'w':'N','W':'N','ArrowUp':'N',
+    's':'S','S':'S','ArrowDown':'S',
+    'a':'W','A':'W','ArrowLeft':'W',
+    'd':'E','D':'E','ArrowRight':'E',
   };
 
   if (moveKeys[key]) {
@@ -592,56 +770,49 @@ function onKeyDown(e) {
     return;
   }
 
-  if (key === 'q' || key === 'Q') {
-    e.preventDefault();
-    sendRotate(false);
-    return;
-  }
+  // R: rotate CW, E: rotate CCW
+  if (key === 'r' || key === 'R') { e.preventDefault(); sendRotate(true);  return; }
+  if (key === 'e' || key === 'E') { e.preventDefault(); sendRotate(false); return; }
 
-  if (key === 'e' || key === 'E') {
-    e.preventDefault();
-    sendRotate(true);
-    return;
-  }
-
-  // Number keys 1-9 to select ship
+  // Number keys to select ship
   if (key >= '1' && key <= '9') {
     const idx = parseInt(key) - 1;
-    if (gameState.player_ships[idx] && gameState.player_ships[idx].state !== 'sunk') {
+    if (gameState.player_ships[idx] && gameState.player_ships[idx].state !== 'dead') {
       selectedShipIndex = idx;
+      actionMode = MODE_NONE;
       renderShipList();
       renderCanvas();
-      setStatus(`Selected ship ${idx + 1}.`, 'info');
     }
+    return;
   }
 
-  // Enter or Space to end turn
-  if (key === 'Enter') {
+  // Space or Enter: end turn
+  if (key === ' ' || key === 'Enter') {
     e.preventDefault();
     sendEndTurn();
   }
 }
 
-// ── UI helpers ────────────────────────────────────────────────────────────────
+// ── UI helpers ─────────────────────────────────────────────────────────────────
 
 function setStatus(msg, type) {
   const box = document.getElementById('status-box');
-  box.className = 'status-' + (type || 'info');
+  box.className  = 'status-' + (type || 'info');
   box.textContent = msg;
 }
 
 function showVictory(winner) {
-  const overlay = document.getElementById('victory-overlay');
-  const title = document.getElementById('victory-title');
+  const overlay  = document.getElementById('victory-overlay');
+  const title    = document.getElementById('victory-title');
   const subtitle = document.getElementById('victory-subtitle');
   overlay.classList.add('show');
   if (winner === 'player') {
     title.textContent = 'Victory!';
-    title.className = 'victory-player';
+    title.className   = 'victory-player';
     subtitle.textContent = 'You have defeated the enemy fleet!';
   } else {
     title.textContent = 'Defeat';
-    title.className = 'victory-ai';
+    title.className   = 'victory-ai';
     subtitle.textContent = 'Your fleet has been destroyed.';
   }
 }
@@ -650,49 +821,49 @@ function hideVictory() {
   document.getElementById('victory-overlay').classList.remove('show');
 }
 
-// ── Mobile helpers ────────────────────────────────────────────────────────────
+// ── Mobile helpers ─────────────────────────────────────────────────────────────
 
 function resizeCanvas() {
   if (window.innerWidth <= 768) {
     const gameArea = document.getElementById('game-area');
     const w = gameArea.clientWidth - 8;
     if (w > 0) {
-      canvas.style.width = w + 'px';
+      canvas.style.width  = w + 'px';
       canvas.style.height = Math.round(w * CANVAS_HEIGHT / CANVAS_WIDTH) + 'px';
     }
   } else {
-    canvas.style.width = '';
+    canvas.style.width  = '';
     canvas.style.height = '';
   }
 }
 
 function onCanvasTouchStart(e) {
-  const touch = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
+  const touch  = e.touches[0];
+  const rect   = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
   const scaleY = canvas.height / rect.height;
   const gx = Math.floor((touch.clientX - rect.left) * scaleX / CELL);
-  const gy = Math.floor((touch.clientY - rect.top) * scaleY / CELL);
+  const gy = Math.floor((touch.clientY - rect.top)  * scaleY / CELL);
   hoveredCell = (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT)
     ? { x: gx, y: gy } : null;
 }
 
 function updateMobileTopBar() {
   if (!gameState) return;
-  const num = document.getElementById('mobile-turn-num');
-  const fuel = document.getElementById('mobile-fuel-val');
+  const num    = document.getElementById('mobile-turn-num');
+  const fuel   = document.getElementById('mobile-fuel-val');
   const supply = document.getElementById('mobile-supply-val');
-  const badge = document.getElementById('mobile-phase-badge');
+  const badge  = document.getElementById('mobile-phase-badge');
   if (!num) return;
 
-  num.textContent = gameState.turn_number;
-  fuel.textContent = gameState.budget.fuel;
+  num.textContent    = gameState.turn_number;
+  fuel.textContent   = gameState.budget.fuel;
   supply.textContent = gameState.budget.supply;
 
   const isPlayer = gameState.phase === 'player';
-  badge.textContent = isPlayer ? 'Your Turn' : 'AI Turn';
+  badge.textContent  = isPlayer ? 'Your Turn' : 'AI Turn';
   badge.style.background = isPlayer ? '#1a3a5a' : '#3a1a1a';
-  badge.style.color = isPlayer ? '#6aaaff' : '#ff6a6a';
+  badge.style.color      = isPlayer ? '#6aaaff' : '#ff6a6a';
 }
 
 function renderMobileShipPanel() {
@@ -705,43 +876,42 @@ function renderMobileShipPanel() {
   }
 
   const ship = gameState.player_ships[selectedShipIndex];
-  if (!ship || ship.state === 'sunk') {
+  if (!ship || ship.state === 'dead') {
     panel.style.display = 'none';
     return;
   }
 
   panel.style.display = 'block';
-
   document.getElementById('mobile-ship-name').textContent = shipTypeName(ship);
   const stateBadge = document.getElementById('mobile-ship-state-badge');
   stateBadge.textContent = ship.state.toUpperCase();
-  stateBadge.className = `ship-state state-${ship.state}`;
+  stateBadge.className   = `ship-state state-${ship.state}`;
 
   const row = document.getElementById('mobile-ship-cells-row');
   row.innerHTML = '';
 
   ship.cells.forEach((cell, ci) => {
-    const isDead = cell.hp === 0;
-    const isFired = !!cell.fired_this_turn;
-    const isWeapon = cell.type === 'weapon';
-    const noSupply = isWeapon && gameState.budget.supply === 0;
+    const isDead    = cell.hp === 0;
+    const isFired   = !!cell.fired_this_turn;
+    const isWeapon  = cell.type === 'weapon';
+    const noSupply  = isWeapon && gameState.budget.supply === 0;
 
     const btn = document.createElement('button');
     let cls = `mobile-cell-btn type-${cell.type}`;
-    if (isDead) cls += ' cell-dead';
-    else if (isFired) cls += ' cell-fired';
-    else if (noSupply) cls += ' cell-no-supply';
+    if (isDead)     cls += ' cell-dead';
+    else if (isFired)    cls += ' cell-fired';
+    else if (noSupply)   cls += ' cell-no-supply';
     btn.className = cls;
 
     const labelEl = document.createElement('span');
-    labelEl.className = 'mcb-label';
+    labelEl.className   = 'mcb-label';
     labelEl.textContent = cell.module
       ? (MODULE_LABELS[cell.module] || cell.module.substring(0, 3).toUpperCase())
       : cell.type.substring(0, 3).toUpperCase();
 
     const typeEl = document.createElement('span');
-    typeEl.className = 'mcb-type';
-    typeEl.textContent = cell.module ? cell.type : cell.type;
+    typeEl.className   = 'mcb-type';
+    typeEl.textContent = cell.type;
 
     const hpEl = document.createElement('span');
     hpEl.className = 'mcb-hp';
@@ -753,7 +923,7 @@ function renderMobileShipPanel() {
     } else {
       const ratio = cell.hp / cell.hp_max;
       hpEl.textContent = `${cell.hp}/${cell.hp_max}`;
-      hpEl.className += ratio > 0.5 ? ' hp-ok' : ratio > 0.25 ? ' hp-medium' : ' hp-low';
+      hpEl.className  += ratio > 0.5 ? ' hp-ok' : ratio > 0.25 ? ' hp-medium' : ' hp-low';
     }
 
     btn.appendChild(labelEl);

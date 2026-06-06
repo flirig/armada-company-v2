@@ -26,23 +26,38 @@ class ShipCell:
     hp_max: int
     fired_this_turn: bool = False
 
+    @property
+    def damage_reduction(self) -> int:
+        return 1 if self.cell_type == CellType.Armor else 0
+
+    def apply_damage(self, incoming: int) -> None:
+        actual = max(1, incoming - self.damage_reduction)
+        self.hp = max(0, self.hp - actual)
+
 @dataclass
 class Ship:
     cells: list[ShipCell]
     bridge_pos: GridPos
     facing: Direction
-    state: ShipState = ShipState.Alive
+    state: ShipState = ShipState.Active
     dying_turns_left: int = 0
     moved_this_turn: bool = False
-    fired_this_turn: bool = False  # any cell fired
+    fired_this_turn: bool = False
+    activated_modules: set = field(default_factory=set)  # set[ModuleType]
+
+    @property
+    def can_move(self) -> bool:
+        return not self.moved_this_turn and self.state == ShipState.Active
+
+    @property
+    def can_fire(self) -> bool:
+        return self.state in (ShipState.Active, ShipState.Dying)
 
     def occupied_cells(self) -> list[GridPos]:
-        """Bridge + cells extending backward from bridge based on facing."""
         dx, dy = _facing_delta(self.facing)
-        # backward direction
         bx, by = -dx, -dy
         result = []
-        for i, _ in enumerate(self.cells):
+        for i in range(len(self.cells)):
             result.append(GridPos(self.bridge_pos.x + bx * i, self.bridge_pos.y + by * i))
         return result
 
@@ -50,7 +65,7 @@ class Ship:
         n = len(self.cells)
         if n <= 2:
             return 1
-        if n <= 3:
+        if n <= 4:
             return 2
         return 3
 
@@ -93,10 +108,10 @@ class TurnBudget:
         self.fuel -= amount
         return True
 
-    def spend_supply(self) -> bool:
-        if self.supply < 1:
+    def spend_supply(self, amount: int = 1) -> bool:
+        if self.supply < amount:
             return False
-        self.supply -= 1
+        self.supply -= amount
         return True
 
 @dataclass
