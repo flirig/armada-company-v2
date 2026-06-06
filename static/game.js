@@ -1,11 +1,11 @@
 // Armada Company v2 — game client
 'use strict';
 
-const GRID_WIDTH = 32;
-const GRID_HEIGHT = 15;
+const GRID_WIDTH = 15;
+const GRID_HEIGHT = 32;
 const CELL = 40;
-const CANVAS_WIDTH = GRID_WIDTH * CELL; // 1280px
-const CANVAS_HEIGHT = GRID_HEIGHT * CELL; // 600px
+const CANVAS_WIDTH = GRID_WIDTH * CELL; // 600px
+const CANVAS_HEIGHT = GRID_HEIGHT * CELL; // 1280px
 
 const TERRAIN_COLORS = {
   0: '#1a3a5c', // DeepSea
