@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Armada Company v2</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a1a2a;
+      color: #c8d8e8;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #game-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      padding: 12px;
+    }
+
+    #canvas {
+      border: 2px solid #2a4a6a;
+      cursor: crosshair;
+      image-rendering: pixelated;
+      display: block;
+    }
+
+    #sidebar {
+      width: 260px;
+      min-width: 260px;
+      background: #0d1f30;
+      border-left: 2px solid #2a4a6a;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 10px;
+      overflow-y: auto;
+    }
+
+    .panel {
+      background: #122032;
+      border: 1px solid #2a4a6a;
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .panel h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #6a9aba;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #1e3a55;
+      padding-bottom: 4px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .stat-label { color: #8aa8c0; }
+    .stat-value { color: #e0f0ff; font-weight: bold; }
+
+    .bar-container {
+      background: #0a1520;
+      border-radius: 3px;
+      height: 12px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    .fuel-bar { background: linear-gradient(90deg, #1a6a3a, #2aaa5a); }
+    .supply-bar { background: linear-gradient(90deg, #6a3a1a, #aa6a2a); }
+
+    #ship-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .ship-card {
+      background: #0d1f2e;
+      border: 1px solid #2a4a6a;
+      border-radius: 4px;
+      padding: 8px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      font-size: 12px;
+    }
+
+    .ship-card:hover { border-color: #4a7aaa; }
+    .ship-card.selected { border-color: #5a9aff; background: #102030; }
+    .ship-card.sunk { opacity: 0.4; cursor: default; }
+    .ship-card.dying { border-color: #aa4a00; }
+
+    .ship-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .ship-name { font-weight: bold; color: #c0d8f0; }
+    .ship-state { font-size: 10px; padding: 2px 5px; border-radius: 3px; }
+    .state-alive { background: #1a4a2a; color: #4aaa6a; }
+    .state-dying { background: #4a2a00; color: #ffaa00; }
+    .state-sunk  { background: #2a0a0a; color: #aa3a3a; }
+
+    .ship-cells {
+      display: flex;
+      gap: 3px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+
+    .cell-badge {
+      font-size: 10px;
+      padding: 2px 4px;
+      border-radius: 2px;
+      border: 1px solid #2a4a6a;
+    }
+
+    .cell-bridge  { background: #1a2a4a; color: #8ab8ff; }
+    .cell-weapon  { background: #2a1a1a; color: #ffaa6a; }
+    .cell-armor   { background: #1a1a2a; color: #6a8aaa; }
+    .cell-supply  { background: #1a2a1a; color: #6aaa6a; }
+    .cell-hull    { background: #0a1a2a; color: #5a7a8a; }
+    .cell-dead    { opacity: 0.3; }
+
+    .fire-buttons {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .btn-fire {
+      font-size: 10px;
+      padding: 3px 6px;
+      border-radius: 3px;
+      border: 1px solid #6a3a1a;
+      background: #2a1a0a;
+      color: #ffaa6a;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-fire:hover { background: #4a2a0a; }
+    .btn-fire:disabled { opacity: 0.3; cursor: default; }
+
+    #controls {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .ctrl-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    button.ctrl-btn {
+      flex: 1;
+      padding: 8px 4px;
+      border-radius: 4px;
+      border: 1px solid #2a4a6a;
+      background: #102030;
+      color: #c0d8f0;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+
+    button.ctrl-btn:hover { background: #1a3a55; }
+
+    button#btn-end-turn {
+      width: 100%;
+      padding: 10px;
+      background: #1a3a1a;
+      border-color: #2a6a2a;
+      color: #6aff6a;
+      font-size: 13px;
+      font-weight: bold;
+      border-radius: 4px;
+      border: 1px solid;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button#btn-end-turn:hover { background: #2a5a2a; }
+
+    #status-box {
+      font-size: 11px;
+      color: #8aa8c0;
+      min-height: 40px;
+      line-height: 1.5;
+    }
+
+    .status-ok   { color: #6aaa6a; }
+    .status-err  { color: #ff6a6a; }
+    .status-info { color: #6aaaff; }
+
+    /* Victory overlay */
+    #victory-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    #victory-overlay.show {
+      display: flex;
+    }
+
+    #victory-box {
+      background: #0d1f30;
+      border: 2px solid #4a9aff;
+      border-radius: 12px;
+      padding: 40px 60px;
+      text-align: center;
+    }
+
+    #victory-title {
+      font-size: 36px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+
+    .victory-player { color: #6aff6a; }
+    .victory-ai     { color: #ff6a6a; }
+
+    #btn-new-game {
+      padding: 12px 32px;
+      font-size: 15px;
+      background: #1a3a5a;
+      border: 2px solid #4a8aff;
+      color: #c0d8ff;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #btn-new-game:hover { background: #2a5a8a; }
+
+    #legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 10px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .legend-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      border: 1px solid #2a4a6a;
+    }
+
+    #turn-phase {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 3px;
+      background: #1a3a5a;
+      color: #6aaaff;
+      text-align: center;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-area">
+    <canvas id="canvas" width="640" height="640"></canvas>
+  </div>
+
+  <div id="sidebar">
+    <div class="panel">
+      <h3>Admiral</h3>
+      <div class="stat-row">
+        <span class="stat-label">Profile</span>
+        <span class="stat-value" id="admiral-profile">balanced</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Turn</span>
+        <span class="stat-value" id="turn-number">1</span>
+      </div>
+      <div id="turn-phase">Player Turn</div>
+    </div>
+
+    <div class="panel">
+      <h3>Resources</h3>
+      <div class="stat-row">
+        <span class="stat-label">Fuel</span>
+        <span class="stat-value" id="fuel-val">5 / 5</span>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill fuel-bar" id="fuel-bar" style="width:100%"></div>
+      </div>
+      <div class="stat-row" style="margin-top:8px">
+        <span class="stat-label">Supply</span>
+        <span class="stat-value" id="supply-val">5 / 5</span>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill supply-bar" id="supply-bar" style="width:100%"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Controls</h3>
+      <div id="controls">
+        <div class="ctrl-row">
+          <button class="ctrl-btn" id="btn-move-n" title="Move North (W/Up)">&#8593; N</button>
+        </div>
+        <div class="ctrl-row">
+          <button class="ctrl-btn" id="btn-move-w" title="Move West (A/Left)">&#8592; W</button>
+          <button class="ctrl-btn" id="btn-move-s" title="Move South (S/Down)">&#8595; S</button>
+          <button class="ctrl-btn" id="btn-move-e" title="Move East (D/Right)">&#8594; E</button>
+        </div>
+        <div class="ctrl-row">
+          <button class="ctrl-btn" id="btn-rotate-ccw" title="Rotate Counter-Clockwise (Q)">&#8634; CCW</button>
+          <button class="ctrl-btn" id="btn-rotate-cw" title="Rotate Clockwise (E)">&#8635; CW</button>
+        </div>
+        <button id="btn-end-turn">End Turn</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Fleet</h3>
+      <div id="ship-list"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Status</h3>
+      <div id="status-box">Loading game...</div>
+    </div>
+
+    <div class="panel">
+      <h3>Legend</h3>
+      <div id="legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background:#1a3a5c"></div>
+          <span>Deep Sea</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:#2d6a8a"></div>
+          <span>Shallow</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:#3060c0"></div>
+          <span>Player Ship</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:#c03020"></div>
+          <span>AI Ship</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:#ff8800"></div>
+          <span>Hit</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:#556677"></div>
+          <span>Miss</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Victory Overlay -->
+  <div id="victory-overlay">
+    <div id="victory-box">
+      <div id="victory-title">Victory!</div>
+      <div id="victory-subtitle" style="color:#8aa8c0; margin-bottom:24px; font-size:15px"></div>
+      <button id="btn-new-game">New Game</button>
+    </div>
+  </div>
+
+  <script src="/static/game.js"></script>
+</body>
+</html>
