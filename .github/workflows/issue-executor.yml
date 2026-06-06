@@ -1,0 +1,47 @@
+name: Issue Executor (Claude Haiku)
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # каждый час
+  workflow_dispatch:        # ручной запуск
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  execute-issues:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install anthropic requests
+
+      - name: Configure git
+        run: |
+          git config user.name "Claude Haiku Agent"
+          git config user.email "claude-agent@users.noreply.github.com"
+
+      - name: Run Claude Issue Executor
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: python .github/scripts/execute_issues.py
+
+      - name: Push changes if any
+        run: |
+          git diff --quiet && git diff --staged --quiet || \
+          git push origin main 2>/dev/null || git push origin master
