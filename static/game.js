@@ -375,7 +375,7 @@ function drawShip(ship, isPlayer, isSelected) {
 
   positions.forEach((pos, cellIdx) => {
     const cell = ship.cells[cellIdx];
-    if (pos.x < 0 || pos.x >= GRID_SIZE || pos.y < 0 || pos.y >= GRID_SIZE) return;
+    if (pos.x < 0 || pos.x >= GRID_WIDTH || pos.y < 0 || pos.y >= GRID_HEIGHT) return;
 
     const px = pos.x * CELL;
     const py = pos.y * CELL;
@@ -515,7 +515,7 @@ function onCanvasMouseMove(e) {
   const my = (e.clientY - rect.top) * scaleY;
   const gx = Math.floor(mx / CELL);
   const gy = Math.floor(my / CELL);
-  if (gx >= 0 && gx < GRID_SIZE && gy >= 0 && gy < GRID_SIZE) {
+  if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT) {
     hoveredCell = { x: gx, y: gy };
   } else {
     hoveredCell = null;
