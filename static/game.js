@@ -1,9 +1,11 @@
 // Armada Company v2 — game client
 'use strict';
 
-const GRID_SIZE = 15;
-const CANVAS_SIZE = 640;
-const CELL = Math.floor(CANVAS_SIZE / GRID_SIZE); // 42px
+const GRID_WIDTH = 32;
+const GRID_HEIGHT = 15;
+const CELL = 40;
+const CANVAS_WIDTH = GRID_WIDTH * CELL; // 1280px
+const CANVAS_HEIGHT = GRID_HEIGHT * CELL; // 600px
 
 const TERRAIN_COLORS = {
   0: '#1a3a5c', // DeepSea
@@ -261,7 +263,7 @@ function shipTypeName(ship) {
 function renderCanvas() {
   if (!gameState || !ctx) return;
 
-  ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   // Build grid lookup
   const gridMap = {};
@@ -274,8 +276,8 @@ function renderCanvas() {
   const aiOccupied = buildOccupiedMap(gameState.ai_ships);
 
   // Draw terrain
-  for (let y = 0; y < GRID_SIZE; y++) {
-    for (let x = 0; x < GRID_SIZE; x++) {
+  for (let y = 0; y < GRID_HEIGHT; y++) {
+    for (let x = 0; x < GRID_WIDTH; x++) {
       const cell = gridMap[`${x},${y}`];
       const height = cell ? cell.height : 0;
       ctx.fillStyle = TERRAIN_COLORS[height] || '#1a3a5c';

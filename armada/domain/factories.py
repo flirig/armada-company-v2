@@ -110,19 +110,19 @@ def create_admiral(profile: str, name: str, rng: random.Random | None = None) ->
     return Admiral(name=name, profile=profile, stats=stats, armada=armada)
 
 
-def create_battlefield(width: int = 15, height: int = 15) -> Battlefield:
+def create_battlefield(width: int = 32, height: int = 15) -> Battlefield:
     cells: dict[tuple[int, int], BattleGridCell] = {}
     for y in range(height):
         for x in range(width):
-            if x in (7, 8):
+            if x in (15, 16):
                 h = TerrainHeight.ShallowWater
             else:
                 h = TerrainHeight.DeepSea
             cells[(x, y)] = BattleGridCell(pos=GridPos(x, y), height=h)
     # Add a port in player zone
-    cells[(2, 7)].obj = CellObjectType.Port
+    cells[(4, 7)].obj = CellObjectType.Port
     # Add oil rig in AI zone
-    cells[(12, 7)].obj = CellObjectType.OilRig
+    cells[(27, 7)].obj = CellObjectType.OilRig
     return Battlefield(width=width, height=height, cells=cells)
 
 
@@ -136,8 +136,8 @@ def create_battle_state(player_profile: str, seed: int | None = None) -> BattleS
     rng = random.Random(seed)
     player = create_admiral(player_profile, "Player", rng)
     ai = create_admiral("balanced", "AI", rng)
-    _place_ships(player.armada.ships, 3, Direction.East)
-    _place_ships(ai.armada.ships, 11, Direction.West)
+    _place_ships(player.armada.ships, 5, Direction.East)
+    _place_ships(ai.armada.ships, 26, Direction.West)
     battlefield = create_battlefield()
     budget = TurnBudget(fuel=player.stats.fuel_per_turn, supply=player.stats.supply_per_turn)
     return BattleState(

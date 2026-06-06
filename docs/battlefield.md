@@ -2,9 +2,9 @@
 
 ## Size
 
-MVP: **15×15** grid. Coordinates (0,0) top-left.
+MVP: **32×15** grid. Coordinates (0,0) top-left.
 
-Player zone: x ≤ 6. Buffer (shallow water): x 7–8. AI zone: x ≥ 9.
+Player zone: x ≤ 14. Buffer (shallow water): x 15–16. AI zone: x ≥ 17.
 
 ## Height levels
 
