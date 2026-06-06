@@ -293,11 +293,154 @@
       text-transform: uppercase;
       letter-spacing: 1px;
     }
+
+    /* ── Mobile top bar ───────────────────────────────────────────────────── */
+    #mobile-top-bar {
+      display: none;
+      background: #0d1f30;
+      border-bottom: 2px solid #2a4a6a;
+      padding: 8px 12px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    #mobile-turn-info {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+
+    .mobile-phase-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+
+    #mobile-resource-info { color: #8aa8c0; }
+
+    #mobile-end-turn {
+      padding: 8px 16px;
+      background: #1a3a1a;
+      border: 1px solid #2a6a2a;
+      color: #6aff6a;
+      font-size: 13px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #mobile-end-turn:active { background: #2a5a2a; }
+
+    /* ── Mobile ship panel ────────────────────────────────────────────────── */
+    #mobile-ship-panel {
+      display: none;
+      background: #0d1f30;
+      border-top: 2px solid #2a4a6a;
+      padding: 8px 12px 10px;
+      flex-shrink: 0;
+    }
+
+    #mobile-ship-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #c0d8f0;
+    }
+
+    #mobile-ship-cells-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .mobile-cell-btn {
+      min-width: 62px;
+      height: 72px;
+      border-radius: 8px;
+      border: 2px solid #2a4a6a;
+      background: #122032;
+      color: #c0d8f0;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 6px 4px;
+      flex-shrink: 0;
+      transition: border-color 0.15s, background 0.15s;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .mobile-cell-btn.type-bridge { border-color: #4a7aff; background: #1a2a4a; }
+    .mobile-cell-btn.type-weapon { border-color: #ff8844; background: #2a1a1a; }
+    .mobile-cell-btn.type-armor  { border-color: #6688aa; background: #1a1a2a; }
+    .mobile-cell-btn.type-supply { border-color: #44aa66; background: #1a2a1a; }
+    .mobile-cell-btn.type-hull   { border-color: #445566; background: #0a1a2a; }
+    .mobile-cell-btn.cell-dead   { opacity: 0.35; border-color: #333 !important; cursor: default; }
+    .mobile-cell-btn.cell-fired  { background: rgba(160, 80, 0, 0.35); cursor: default; }
+    .mobile-cell-btn.cell-no-supply { opacity: 0.5; cursor: default; }
+    .mobile-cell-btn:active:not(.cell-dead):not(.cell-fired):not(.cell-no-supply) { transform: scale(0.94); }
+
+    .mcb-label { font-size: 14px; font-weight: bold; }
+    .mcb-type  { font-size: 9px; color: #88aabb; text-transform: uppercase; letter-spacing: 0.5px; }
+    .mcb-hp    { font-size: 10px; color: #6a9aba; }
+    .mcb-hp.hp-low    { color: #ff6a6a; }
+    .mcb-hp.hp-medium { color: #ffaa00; }
+    .mcb-hp.hp-ok     { color: #4aff4a; }
+
+    /* ── Mobile responsive ────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      body {
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      #mobile-top-bar { display: flex; }
+
+      #sidebar { display: none; }
+
+      #game-area {
+        justify-content: flex-start;
+        overflow: auto;
+        padding: 4px;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
   </style>
 </head>
 <body>
+  <!-- Mobile top bar (hidden on desktop) -->
+  <div id="mobile-top-bar">
+    <div id="mobile-turn-info">
+      <span id="mobile-phase-badge" class="mobile-phase-badge">Your Turn</span>
+      <span id="mobile-resource-info">Turn <b id="mobile-turn-num">1</b> &nbsp;⛽ <b id="mobile-fuel-val">5</b> &nbsp;📦 <b id="mobile-supply-val">5</b></span>
+    </div>
+    <button id="mobile-end-turn">End Turn</button>
+  </div>
+
   <div id="game-area">
     <canvas id="canvas" width="600" height="1280"></canvas>
+  </div>
+
+  <!-- Mobile ship panel: shown when a ship is selected (hidden on desktop) -->
+  <div id="mobile-ship-panel">
+    <div id="mobile-ship-header">
+      <span id="mobile-ship-name">—</span>
+      <span id="mobile-ship-state-badge"></span>
+    </div>
+    <div id="mobile-ship-cells-row"></div>
   </div>
 
   <div id="sidebar">

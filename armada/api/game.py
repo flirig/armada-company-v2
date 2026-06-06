@@ -48,6 +48,7 @@ def _snapshot(state: BattleState) -> dict:
                     "module": c.module_type.value if c.module_type else None,
                     "hp": c.hp,
                     "hp_max": c.hp_max,
+                    "fired_this_turn": c.fired_this_turn,
                 }
                 for c in ship.cells
             ],

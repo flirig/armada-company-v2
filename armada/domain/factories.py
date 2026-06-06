@@ -126,9 +126,9 @@ def create_battlefield(width: int = 15, height: int = 32) -> Battlefield:
     return Battlefield(width=width, height=height, cells=cells)
 
 
-def _place_ships(ships: list[Ship], start_x: int, facing: Direction) -> None:
+def _place_ships(ships: list[Ship], start_x: int, facing: Direction, start_y: int = 2, y_step: int = 2) -> None:
     for i, ship in enumerate(ships):
-        ship.bridge_pos = GridPos(start_x, i * 2 + 2)
+        ship.bridge_pos = GridPos(start_x, start_y + y_step * i)
         ship.facing = facing
 
 
@@ -136,8 +136,8 @@ def create_battle_state(player_profile: str, seed: int | None = None) -> BattleS
     rng = random.Random(seed)
     player = create_admiral(player_profile, "Player", rng)
     ai = create_admiral("balanced", "AI", rng)
-    _place_ships(player.armada.ships, 3, Direction.East)
-    _place_ships(ai.armada.ships, 11, Direction.West)
+    _place_ships(player.armada.ships, 3, Direction.East, start_y=2, y_step=2)
+    _place_ships(ai.armada.ships, 11, Direction.West, start_y=29, y_step=-2)
     battlefield = create_battlefield()
     budget = TurnBudget(fuel=player.stats.fuel_per_turn, supply=player.stats.supply_per_turn)
     return BattleState(

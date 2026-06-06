@@ -45,6 +45,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   canvas.addEventListener('mousemove', onCanvasMouseMove);
   canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('touchstart', onCanvasTouchStart, { passive: true });
 
   document.getElementById('btn-move-n').addEventListener('click', () => sendMove('N'));
   document.getElementById('btn-move-s').addEventListener('click', () => sendMove('S'));
@@ -54,9 +55,12 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-rotate-ccw').addEventListener('click', () => sendRotate(false));
   document.getElementById('btn-end-turn').addEventListener('click', sendEndTurn);
   document.getElementById('btn-new-game').addEventListener('click', startNewGame);
+  document.getElementById('mobile-end-turn').addEventListener('click', sendEndTurn);
 
   document.addEventListener('keydown', onKeyDown);
+  window.addEventListener('resize', resizeCanvas);
 
+  resizeCanvas();
   startNewGame();
 });
 
@@ -149,6 +153,8 @@ function applyState(state) {
   gameState = state;
   updateSidebar();
   renderCanvas();
+  updateMobileTopBar();
+  renderMobileShipPanel();
   if (state.victory) showVictory(state.victory);
 }
 
@@ -558,6 +564,7 @@ function onCanvasClick(e) {
     selectedShipIndex = selectedShipIndex === found ? null : found;
     renderShipList();
     renderCanvas();
+    renderMobileShipPanel();
     if (selectedShipIndex !== null) {
       setStatus(`Selected ship ${selectedShipIndex + 1}. Use WASD/arrows to move, Q/E to rotate.`, 'info');
     }
@@ -641,4 +648,122 @@ function showVictory(winner) {
 
 function hideVictory() {
   document.getElementById('victory-overlay').classList.remove('show');
+}
+
+// ── Mobile helpers ────────────────────────────────────────────────────────────
+
+function resizeCanvas() {
+  if (window.innerWidth <= 768) {
+    const gameArea = document.getElementById('game-area');
+    const w = gameArea.clientWidth - 8;
+    if (w > 0) {
+      canvas.style.width = w + 'px';
+      canvas.style.height = Math.round(w * CANVAS_HEIGHT / CANVAS_WIDTH) + 'px';
+    }
+  } else {
+    canvas.style.width = '';
+    canvas.style.height = '';
+  }
+}
+
+function onCanvasTouchStart(e) {
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const gx = Math.floor((touch.clientX - rect.left) * scaleX / CELL);
+  const gy = Math.floor((touch.clientY - rect.top) * scaleY / CELL);
+  hoveredCell = (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT)
+    ? { x: gx, y: gy } : null;
+}
+
+function updateMobileTopBar() {
+  if (!gameState) return;
+  const num = document.getElementById('mobile-turn-num');
+  const fuel = document.getElementById('mobile-fuel-val');
+  const supply = document.getElementById('mobile-supply-val');
+  const badge = document.getElementById('mobile-phase-badge');
+  if (!num) return;
+
+  num.textContent = gameState.turn_number;
+  fuel.textContent = gameState.budget.fuel;
+  supply.textContent = gameState.budget.supply;
+
+  const isPlayer = gameState.phase === 'player';
+  badge.textContent = isPlayer ? 'Your Turn' : 'AI Turn';
+  badge.style.background = isPlayer ? '#1a3a5a' : '#3a1a1a';
+  badge.style.color = isPlayer ? '#6aaaff' : '#ff6a6a';
+}
+
+function renderMobileShipPanel() {
+  const panel = document.getElementById('mobile-ship-panel');
+  if (!panel) return;
+
+  if (window.innerWidth > 768 || selectedShipIndex === null || !gameState) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  const ship = gameState.player_ships[selectedShipIndex];
+  if (!ship || ship.state === 'sunk') {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+
+  document.getElementById('mobile-ship-name').textContent = shipTypeName(ship);
+  const stateBadge = document.getElementById('mobile-ship-state-badge');
+  stateBadge.textContent = ship.state.toUpperCase();
+  stateBadge.className = `ship-state state-${ship.state}`;
+
+  const row = document.getElementById('mobile-ship-cells-row');
+  row.innerHTML = '';
+
+  ship.cells.forEach((cell, ci) => {
+    const isDead = cell.hp === 0;
+    const isFired = !!cell.fired_this_turn;
+    const isWeapon = cell.type === 'weapon';
+    const noSupply = isWeapon && gameState.budget.supply === 0;
+
+    const btn = document.createElement('button');
+    let cls = `mobile-cell-btn type-${cell.type}`;
+    if (isDead) cls += ' cell-dead';
+    else if (isFired) cls += ' cell-fired';
+    else if (noSupply) cls += ' cell-no-supply';
+    btn.className = cls;
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'mcb-label';
+    labelEl.textContent = cell.module
+      ? (MODULE_LABELS[cell.module] || cell.module.substring(0, 3).toUpperCase())
+      : cell.type.substring(0, 3).toUpperCase();
+
+    const typeEl = document.createElement('span');
+    typeEl.className = 'mcb-type';
+    typeEl.textContent = cell.module ? cell.type : cell.type;
+
+    const hpEl = document.createElement('span');
+    hpEl.className = 'mcb-hp';
+    if (isDead) {
+      hpEl.textContent = '✕ sunk';
+    } else if (isFired) {
+      hpEl.textContent = 'fired';
+      hpEl.style.color = '#ffaa00';
+    } else {
+      const ratio = cell.hp / cell.hp_max;
+      hpEl.textContent = `${cell.hp}/${cell.hp_max}`;
+      hpEl.className += ratio > 0.5 ? ' hp-ok' : ratio > 0.25 ? ' hp-medium' : ' hp-low';
+    }
+
+    btn.appendChild(labelEl);
+    btn.appendChild(typeEl);
+    btn.appendChild(hpEl);
+
+    if (isWeapon && !isDead && !isFired && !noSupply) {
+      btn.addEventListener('click', () => sendFire(selectedShipIndex, ci));
+    }
+
+    row.appendChild(btn);
+  });
 }
