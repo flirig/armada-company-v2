@@ -25,12 +25,66 @@ class NewGameRequest(BaseModel):
 
 
 class ActionRequest(BaseModel):
-    type: str  # "move" | "rotate" | "fire" | "end_turn"
+    type: str  # "move" | "move_to" | "rotate" | "fire" | "end_turn"
     ship_index: int = 0
     direction: str | None = None
     clockwise: bool = True
     module_cell_index: int | None = None
     target: dict | None = None
+
+
+def _find_path(ship, target: GridPos, all_ships: list, battlefield) -> list[GridPos] | None:
+    """BFS to find path from ship.bridge_pos to target. Returns ordered list of positions including target."""
+    from collections import deque
+    from armada.domain.enums import TerrainHeight
+
+    start = ship.bridge_pos
+    if start == target:
+        return [target]
+
+    occupied = set()
+    for s in all_ships:
+        if s is ship or s.state == ShipState.Dead:
+            continue
+        for p in s.occupied_cells():
+            occupied.add((p.x, p.y))
+
+    queue = deque([(start, [start])])
+    visited = {(start.x, start.y)}
+    draft = ship.draft()
+
+    while queue:
+        pos, path = queue.popleft()
+        if len(path) > 32:  # Prevent infinite loops
+            continue
+
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = pos.x + dx, pos.y + dy
+            if (nx, ny) in visited:
+                continue
+            if nx < 0 or nx >= 15 or ny < 1 or ny > 15:  # Player zone only
+                continue
+
+            cell = battlefield.cells.get((nx, ny))
+            if not cell:
+                continue
+            if cell.height in (TerrainHeight.Land, TerrainHeight.Mountain):
+                continue
+            if draft >= 2 and cell.height == TerrainHeight.ShallowWater:
+                continue
+            if (nx, ny) in occupied:
+                continue
+
+            new_pos = GridPos(nx, ny)
+            new_path = path + [new_pos]
+
+            if new_pos == target:
+                return new_path
+
+            visited.add((nx, ny))
+            queue.append((new_pos, new_path))
+
+    return None
 
 
 def _snapshot(state: BattleState) -> dict:
@@ -132,6 +186,30 @@ async def action(session_id: str, req: ActionRequest):
     ship = player_ships[req.ship_index]
     if ship.state == ShipState.Dead:
         return {"ok": False, "error": "ship_dead", "state": _snapshot(state)}
+
+    if req.type == "move_to":
+        if req.target is None:
+            return {"ok": False, "error": "missing_target", "state": _snapshot(state)}
+        if not ship.can_move:
+            return {"ok": False, "error": "cannot_move", "state": _snapshot(state)}
+
+        target = GridPos(req.target["x"], req.target["y"])
+        path = _find_path(ship, target, all_ships, state.battlefield)
+        if not path:
+            return {"ok": False, "error": "no_path", "state": _snapshot(state)}
+
+        # Cost: Size for startup + 1 per cell after first
+        startup_cost = len(ship.cells)
+        movement_cost = len(path) - 1
+        total_cost = startup_cost + movement_cost
+
+        if not state.turn_budget.spend_fuel(total_cost):
+            return {"ok": False, "error": "insufficient_fuel", "state": _snapshot(state)}
+
+        # Move ship to target
+        ship.bridge_pos = target
+        ship.moved_this_turn = True
+        return {"ok": True, "error": None, "state": _snapshot(state)}
 
     if req.type == "move":
         if req.direction is None:

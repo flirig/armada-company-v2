@@ -24,7 +24,7 @@ const MODULE_LABELS = {
 
 // ActionMode
 const MODE_NONE            = 'none';
-const MODE_MOVE_PENDING    = 'move_pending';
+const MODE_MOVE_PATH       = 'move_path';
 const MODE_TARGETING_MISSILE = 'targeting_missile';
 
 // State
@@ -115,6 +115,23 @@ async function sendMove(direction) {
     addLog(`Ship moved ${direction}`);
     setStatus(`Ship moved ${direction}.`, 'ok');
     actionMode = MODE_NONE;
+  }
+}
+
+async function sendMoveTo(shipIndex, targetX, targetY) {
+  const res = await sendAction({
+    type: 'move_to',
+    ship_index: shipIndex,
+    target: { x: targetX, y: targetY }
+  });
+  if (res && res.ok) {
+    addLog(`Moved to (${targetX}, ${targetY})`);
+    setStatus('Ship moved successfully!', 'ok');
+    actionMode = MODE_NONE;
+    validMoveCells = [];
+    selectedShipIndex = null;
+  } else if (res) {
+    setStatus('Movement failed: ' + res.error, 'err');
   }
 }
 
@@ -302,6 +319,64 @@ function shipTypeName(ship) {
   return 'Warship';
 }
 
+// ── Path finding ──────────────────────────────────────────────────────────────
+
+function getReachableCells(ship) {
+  const fuel = gameState.budget.fuel;
+  const size = ship.cells.length;
+  const startup = size;
+  if (fuel < startup) return []; // Can't even start
+
+  const maxDist = fuel - startup; // How many cells can move after startup
+  const reachable = new Set();
+  const queue = [{x: ship.bridge_pos.x, y: ship.bridge_pos.y, dist: 0}];
+  const visited = new Set([`${ship.bridge_pos.x},${ship.bridge_pos.y}`]);
+
+  // Build occupied set
+  const occupied = {};
+  gameState.player_ships.concat(gameState.ai_ships).forEach(s => {
+    if (s.state === 'dead') return;
+    getOccupiedPositions(s).forEach(p => {
+      occupied[`${p.x},${p.y}`] = true;
+    });
+  });
+  delete occupied[`${ship.bridge_pos.x},${ship.bridge_pos.y}`];
+
+  // BFS
+  while (queue.length > 0) {
+    const {x, y, dist} = queue.shift();
+    if (dist > maxDist) continue;
+
+    for (const [dx, dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+      const nx = x + dx, ny = y + dy;
+      const key = `${nx},${ny}`;
+
+      if (visited.has(key)) continue;
+      if (nx < 0 || nx >= GRID_WIDTH || ny < 1 || ny > 15) continue; // Player zone
+      if (occupied[key]) continue;
+
+      const cell = gameState.grid.find(c => c.x === nx && c.y === ny);
+      if (!cell) continue;
+      // Land=2, Mountain=3
+      if (cell.height === 2 || cell.height === 3) continue;
+      // Shallow water ok for now (check draft if needed)
+      if (cell.obj && cell.obj !== 'port' && cell.obj !== 'oil_rig') continue;
+
+      visited.add(key);
+      reachable.add(key);
+      const nextDist = dist + 1;
+      if (nextDist <= maxDist) {
+        queue.push({x: nx, y: ny, dist: nextDist});
+      }
+    }
+  }
+
+  return Array.from(reachable).map(k => {
+    const [x, y] = k.split(',').map(Number);
+    return {x, y};
+  });
+}
+
 // ── Canvas rendering ──────────────────────────────────────────────────────────
 
 function renderCanvas() {
@@ -342,9 +417,9 @@ function renderCanvas() {
   ctx.moveTo(0, 18 * CELL); ctx.lineTo(CANVAS_WIDTH, 18 * CELL);
   ctx.stroke();
 
-  // MovePending overlay
-  if (actionMode === MODE_MOVE_PENDING && selectedShipIndex !== null) {
-    drawMoveOverlay();
+  // MovePath overlay (new path-based movement)
+  if (actionMode === MODE_MOVE_PATH && selectedShipIndex !== null) {
+    drawMovePathOverlay();
   }
 
   // TargetingMissile overlay
@@ -397,21 +472,13 @@ function renderCanvas() {
   }
 }
 
-function drawMoveOverlay() {
-  const ship = gameState.player_ships[selectedShipIndex];
-  if (!ship) return;
-  const dirs = ['N','S','E','W'];
-  const deltas = {N:[0,-1], S:[0,1], E:[1,0], W:[-1,0]};
-  dirs.forEach(d => {
-    const [dx, dy] = deltas[d];
-    // Highlight just the adjacent cells in player zone as valid move hints
-    const np = { x: ship.bridge_pos.x + dx, y: ship.bridge_pos.y + dy };
-    if (np.x < 0 || np.x >= GRID_WIDTH || np.y < 1 || np.y > 15) return;
-    ctx.fillStyle = 'rgba(0,200,80,0.18)';
-    ctx.fillRect(np.x * CELL, np.y * CELL, CELL, CELL);
-    ctx.strokeStyle = 'rgba(0,220,80,0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(np.x * CELL, np.y * CELL, CELL, CELL);
+function drawMovePathOverlay() {
+  validMoveCells.forEach(cell => {
+    ctx.fillStyle = 'rgba(0,200,80,0.2)';
+    ctx.fillRect(cell.x * CELL, cell.y * CELL, CELL, CELL);
+    ctx.strokeStyle = 'rgba(0,220,80,0.7)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cell.x * CELL, cell.y * CELL, CELL, CELL);
   });
 }
 
@@ -709,40 +776,56 @@ function onCanvasClick(e) {
     return;
   }
 
-  // Click ship cell in MovePending: move there
-  if (actionMode === MODE_MOVE_PENDING && selectedShipIndex !== null) {
-    const ship = gameState.player_ships[selectedShipIndex];
-    const bp   = ship.bridge_pos;
-    const dx   = hoveredCell.x - bp.x;
-    const dy   = hoveredCell.y - bp.y;
-    const dirMap = [[0,-1,'N'],[0,1,'S'],[-1,0,'W'],[1,0,'E']];
-    const entry = dirMap.find(([ex, ey]) => ex === dx && ey === dy);
-    if (entry) {
-      sendMove(entry[2]);
+  // MovePath mode: click on green cell to move
+  if (actionMode === MODE_MOVE_PATH && selectedShipIndex !== null) {
+    const isReachable = validMoveCells.some(c => c.x === hoveredCell.x && c.y === hoveredCell.y);
+    if (isReachable) {
+      sendMoveTo(selectedShipIndex, hoveredCell.x, hoveredCell.y);
       return;
     }
     // Clicked elsewhere: cancel
     actionMode = MODE_NONE;
+    validMoveCells = [];
     renderCanvas();
     return;
   }
 
-  // Click player ship to select
+  // Click player ship
   const { x, y } = hoveredCell;
   let found = null;
+  let cellIndex = -1;
   gameState.player_ships.forEach((ship, idx) => {
     if (ship.state === 'dead') return;
-    if (getOccupiedPositions(ship).some(p => p.x === x && p.y === y)) found = idx;
+    const positions = getOccupiedPositions(ship);
+    positions.forEach((p, ci) => {
+      if (p.x === x && p.y === y) {
+        found = idx;
+        cellIndex = ci;
+      }
+    });
   });
 
   if (found !== null) {
-    selectedShipIndex = (selectedShipIndex === found) ? null : found;
-    actionMode = MODE_NONE;
-    renderShipList();
-    renderCanvas();
-    renderMobileShipPanel();
-    if (selectedShipIndex !== null)
-      setStatus(`Ship selected. Use buttons or keyboard to act.`, 'info');
+    const ship = gameState.player_ships[found];
+    // Click on bridge (cellIndex === 0) = enter move mode
+    if (cellIndex === 0 && ship.state !== 'dead' && ship.state !== 'dying' && !ship.moved) {
+      selectedShipIndex = found;
+      validMoveCells = getReachableCells(ship);
+      actionMode = MODE_MOVE_PATH;
+      setStatus(`Click green cells to move (startup: ${ship.cells.length} fuel). ESC to cancel.`, 'info');
+      renderCanvas();
+      renderShipList();
+    } else {
+      // Regular selection
+      selectedShipIndex = (selectedShipIndex === found) ? null : found;
+      actionMode = MODE_NONE;
+      validMoveCells = [];
+      renderShipList();
+      renderCanvas();
+      renderMobileShipPanel();
+      if (selectedShipIndex !== null)
+        setStatus(`Ship selected. Click bridge to move, buttons to fire.`, 'info');
+    }
   }
 }
 
