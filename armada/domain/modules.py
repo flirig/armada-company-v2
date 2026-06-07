@@ -31,9 +31,11 @@ def _is_solid_terrain(pos: GridPos, bf: Battlefield) -> bool:
     return cell.height in (TerrainHeight.Land, TerrainHeight.Mountain)
 
 
-def _ship_at(pos: GridPos, all_ships: list[Ship]) -> bool:
+def _ship_at(pos: GridPos, all_ships: list[Ship], exclude_ship: Ship | None = None) -> bool:
     for ship in all_ships:
         if ship.state == ShipState.Dead:
+            continue
+        if exclude_ship is ship:
             continue
         for p in ship.occupied_cells():
             if p == pos:
@@ -48,9 +50,10 @@ def fire(
     battlefield: Battlefield,
     all_ships: list[Ship],
     target: GridPos | None = None,
+    firing_ship: Ship | None = None,
 ) -> list[ImpactResult]:
     if module == ModuleType.Torpedo:
-        return _fire_torpedo(origin, facing, battlefield, all_ships)
+        return _fire_torpedo(origin, facing, battlefield, all_ships, firing_ship)
     if module == ModuleType.Mortar:
         return _fire_mortar(origin, facing, battlefield)
     if module == ModuleType.Bomber:
@@ -64,7 +67,7 @@ def fire(
 
 
 def _fire_torpedo(origin: GridPos, facing: Direction, bf: Battlefield,
-                  all_ships: list[Ship]) -> list[ImpactResult]:
+                  all_ships: list[Ship], firing_ship: Ship | None = None) -> list[ImpactResult]:
     dx, dy = _facing_delta(facing)
     x, y = origin.x + dx, origin.y + dy
     for _ in range(20):
@@ -74,7 +77,7 @@ def _fire_torpedo(origin: GridPos, facing: Direction, bf: Battlefield,
         if _is_solid_terrain(pos, bf):
             break
         result = ImpactResult(pos=pos, damage=2)
-        if _ship_at(pos, all_ships):
+        if _ship_at(pos, all_ships, exclude_ship=firing_ship):
             return [result]  # stops on first ship hit
         x += dx
         y += dy

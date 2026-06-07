@@ -62,7 +62,7 @@ def _find_path(ship, target: GridPos, all_ships: list, battlefield) -> list[Grid
             nx, ny = pos.x + dx, pos.y + dy
             if (nx, ny) in visited:
                 continue
-            if nx < 0 or nx >= 15 or ny < 1 or ny > 15:  # Player zone only
+            if nx < 0 or nx >= 15 or ny < 1 or ny > 16:  # Player zone only
                 continue
 
             cell = battlefield.cells.get((nx, ny))
@@ -268,7 +268,7 @@ async def action(session_id: str, req: ActionRequest):
         if req.target:
             tgt = GridPos(req.target["x"], req.target["y"])
         impacts = fire(cell.module_type, gun_pos, ship.facing,
-                       state.battlefield, all_ships, tgt)
+                       state.battlefield, all_ships, tgt, firing_ship=ship)
         impacts = [apply_aa_intercept(r, all_ships) for r in impacts]
         apply_damage_to_ships(impacts, ai_ships, state.battlefield)
         cell.fired_this_turn = True

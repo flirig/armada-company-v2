@@ -11,9 +11,9 @@ from armada.domain.models import (
 # ── Field constants ────────────────────────────────────────────────────────────
 FIELD_WIDTH  = 15
 FIELD_HEIGHT = 32
-PLAYER_Y_MIN, PLAYER_Y_MAX = 1, 15
-BUFFER_Y_MIN, BUFFER_Y_MAX = 16, 17
-AI_Y_MIN,     AI_Y_MAX     = 18, 32
+PLAYER_Y_MIN, PLAYER_Y_MAX = 1, 16
+BUFFER_Y_MIN, BUFFER_Y_MAX = 17, 18
+AI_Y_MIN,     AI_Y_MAX     = 19, 32
 PLAYER_ANCHOR_Y = 8
 AI_ANCHOR_Y     = 25
 AI_RNG_SEED     = 42
@@ -93,12 +93,12 @@ _FACTORIES = [
 # ── Admiral profiles ───────────────────────────────────────────────────────────
 
 _ADMIRAL_PROFILES: dict[str, AdmiralStats] = {
-    "standard":  AdmiralStats(fuel_per_turn=12, supply_per_turn=5,  deck_limit=10),
-    "balanced":  AdmiralStats(fuel_per_turn=5,  supply_per_turn=5,  deck_limit=5),
-    "mobile":    AdmiralStats(fuel_per_turn=8,  supply_per_turn=4,  deck_limit=3),
-    "offensive": AdmiralStats(fuel_per_turn=3,  supply_per_turn=8,  deck_limit=4),
-    "heavy":     AdmiralStats(fuel_per_turn=3,  supply_per_turn=4,  deck_limit=8),
-    "recon":     AdmiralStats(fuel_per_turn=6,  supply_per_turn=4,  deck_limit=5, ability="recon_bonus"),
+    "standard":  AdmiralStats(fuel_per_turn=12, supply_per_turn=5,  deck_limit=13),
+    "balanced":  AdmiralStats(fuel_per_turn=5,  supply_per_turn=5,  deck_limit=8),
+    "mobile":    AdmiralStats(fuel_per_turn=8,  supply_per_turn=4,  deck_limit=6),
+    "offensive": AdmiralStats(fuel_per_turn=3,  supply_per_turn=8,  deck_limit=7),
+    "heavy":     AdmiralStats(fuel_per_turn=3,  supply_per_turn=4,  deck_limit=11),
+    "recon":     AdmiralStats(fuel_per_turn=6,  supply_per_turn=4,  deck_limit=8, ability="recon_bonus"),
 }
 
 

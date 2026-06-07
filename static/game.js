@@ -352,7 +352,7 @@ function getReachableCells(ship) {
       const key = `${nx},${ny}`;
 
       if (visited.has(key)) continue;
-      if (nx < 0 || nx >= GRID_WIDTH || ny < 1 || ny > 15) continue; // Player zone
+      if (nx < 0 || nx >= GRID_WIDTH || ny < 1 || ny > 16) continue; // Player zone
       if (occupied[key]) continue;
 
       const cell = gameState.grid.find(c => c.x === nx && c.y === ny);
@@ -413,8 +413,8 @@ function renderCanvas() {
   ctx.strokeStyle = 'rgba(100,180,255,0.15)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(0, 16 * CELL); ctx.lineTo(CANVAS_WIDTH, 16 * CELL);
-  ctx.moveTo(0, 18 * CELL); ctx.lineTo(CANVAS_WIDTH, 18 * CELL);
+  ctx.moveTo(0, 15 * CELL); ctx.lineTo(CANVAS_WIDTH, 15 * CELL);
+  ctx.moveTo(0, 17 * CELL); ctx.lineTo(CANVAS_WIDTH, 17 * CELL);
   ctx.stroke();
 
   // MovePath overlay (new path-based movement)
@@ -787,12 +787,6 @@ function onCanvasClick(e) {
       renderCanvas();
       renderShipList();
     }
-    // Click on weapon cell = fire if possible
-    else if (cell.type === 'weapon' && cell.module && cell.hp > 0 && !cell.fired_this_turn && gameState.budget.supply > 0 && ship.state !== 'dead' && ship.state !== 'dying') {
-      selectedShipIndex = found;
-      sendFire(found, cellIndex);
-      renderShipList();
-    }
     // Regular selection
     else {
       selectedShipIndex = (selectedShipIndex === found) ? null : found;
@@ -802,7 +796,7 @@ function onCanvasClick(e) {
       renderCanvas();
       renderMobileShipPanel();
       if (selectedShipIndex !== null)
-        setStatus(`Ship selected. Click bridge to move, click weapon to fire.`, 'info');
+        setStatus(`Ship selected. Use HUD buttons to fire weapons.`, 'info');
     }
   }
 }
