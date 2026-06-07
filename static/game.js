@@ -951,7 +951,7 @@ function renderMobileShipPanel() {
     const isDead    = cell.hp === 0;
     const isFired   = !!cell.fired_this_turn;
     const isWeapon  = cell.type === 'weapon';
-    const isBridge  = ci === 0;
+    const isBridge  = cell.type === 'bridge';
     const noSupply  = isWeapon && gameState.budget.supply === 0;
     const isActive  = activeModuleIndex === ci;
     const canActivate = !isDead && gameState.phase === 'player' &&
@@ -1008,7 +1008,7 @@ function onModuleClick(shipIndex, cellIndex) {
   const ship = gameState.player_ships[shipIndex];
   if (!ship) return;
   const cell = ship.cells[cellIndex];
-  const isBridge = cellIndex === 0;
+  const isBridge = cell.type === 'bridge';
   const isWeapon = cell.type === 'weapon';
 
   // Deactivate if clicking same module again
@@ -1016,6 +1016,7 @@ function onModuleClick(shipIndex, cellIndex) {
     activeModuleIndex = null;
     actionMode = MODE_NONE;
     validMoveCells = [];
+    pendingFireInfo = null;
     setStatus('Cancelled.', 'info');
     renderMobileShipPanel();
     renderCanvas();
@@ -1033,5 +1034,6 @@ function onModuleClick(shipIndex, cellIndex) {
     renderCanvas();
   } else if (isWeapon && !cell.fired_this_turn && gameState.budget.supply > 0) {
     sendFire(shipIndex, cellIndex);
+    renderMobileShipPanel();
   }
 }
