@@ -352,7 +352,7 @@ function getReachableCells(ship) {
       const key = `${nx},${ny}`;
 
       if (visited.has(key)) continue;
-      if (nx < 0 || nx >= GRID_WIDTH || ny < 1 || ny > 16) continue; // Player zone
+      if (nx < 0 || nx >= GRID_WIDTH || ny < 0 || ny > 14) continue; // Player zone
       if (occupied[key]) continue;
 
       const cell = gameState.grid.find(c => c.x === nx && c.y === ny);

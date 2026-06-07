@@ -45,12 +45,12 @@ def _tick_mines(state: BattleState) -> None:
 
     for pos, mine_cell in mine_cells:
         x, y = pos
-        # Move toward buffer (Y=17-18)
+        # Move toward buffer (Y=15-16)
         if y >= AI_Y_MIN:
-            # AI zone: move toward Y=18 (southward = decreasing y)
+            # AI zone: move toward buffer (decreasing y)
             new_y = y - 1
         else:
-            # Player zone: move toward Y=17 (northward = increasing y)
+            # Player zone: move toward buffer (increasing y)
             new_y = y + 1
 
         # Remove from current position

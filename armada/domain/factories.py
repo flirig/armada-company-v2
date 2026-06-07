@@ -11,11 +11,11 @@ from armada.domain.models import (
 # ── Field constants ────────────────────────────────────────────────────────────
 FIELD_WIDTH  = 15
 FIELD_HEIGHT = 32
-PLAYER_Y_MIN, PLAYER_Y_MAX = 1, 16
-BUFFER_Y_MIN, BUFFER_Y_MAX = 17, 18
-AI_Y_MIN,     AI_Y_MAX     = 19, 32
-PLAYER_ANCHOR_Y = 8
-AI_ANCHOR_Y     = 25
+PLAYER_Y_MIN, PLAYER_Y_MAX = 0, 14
+BUFFER_Y_MIN, BUFFER_Y_MAX = 15, 16
+AI_Y_MIN,     AI_Y_MAX     = 17, 31
+PLAYER_ANCHOR_Y = 7
+AI_ANCHOR_Y     = 24
 AI_RNG_SEED     = 42
 
 
@@ -136,8 +136,8 @@ def _spawn_safe_zone(anchor_y: int) -> set[tuple[int, int]]:
 def _generate_player_half(rng: random.Random, cells: dict[tuple[int, int], BattleGridCell]) -> None:
     safe = _spawn_safe_zone(PLAYER_ANCHOR_Y)
 
-    # Coastline Y=1-3: 12% mountain, rest land, with openings
-    for y in range(1, 4):
+    # Coastline near top: 12% mountain, rest land, with openings
+    for y in range(PLAYER_Y_MIN, PLAYER_Y_MIN + 3):
         for x in range(FIELD_WIDTH):
             if (x, y) in safe:
                 continue
@@ -145,14 +145,14 @@ def _generate_player_half(rng: random.Random, cells: dict[tuple[int, int], Battl
     # Opening in coastline: width 3-6 at random X
     opening_w = rng.randint(3, 6)
     opening_x = rng.randint(0, FIELD_WIDTH - opening_w)
-    for y in range(1, 4):
+    for y in range(PLAYER_Y_MIN, PLAYER_Y_MIN + 3):
         for x in range(opening_x, opening_x + opening_w):
             cells[(x, y)].height = TerrainHeight.DeepSea
-    # Shallow water near coast at Y=4
+    # Shallow water near coast
     for x in range(FIELD_WIDTH):
-        if cells[(x, 3)].height == TerrainHeight.Land or cells[(x, 3)].height == TerrainHeight.Mountain:
-            if (x, 4) in cells and (x, 4) not in safe:
-                cells[(x, 4)].height = TerrainHeight.ShallowWater
+        if cells[(x, PLAYER_Y_MIN + 2)].height == TerrainHeight.Land or cells[(x, PLAYER_Y_MIN + 2)].height == TerrainHeight.Mountain:
+            if (x, PLAYER_Y_MIN + 3) in cells and (x, PLAYER_Y_MIN + 3) not in safe:
+                cells[(x, PLAYER_Y_MIN + 3)].height = TerrainHeight.ShallowWater
 
     # Island: 1-3 land cells
     island_cx = rng.randint(2, FIELD_WIDTH - 3)
@@ -229,13 +229,13 @@ def _generate_player_half(rng: random.Random, cells: dict[tuple[int, int], Battl
 
 
 def _mirror_to_ai_half(cells: dict[tuple[int, int], BattleGridCell]) -> None:
-    """Mirror player half (Y=1-15) to AI half (Y=18-32) with Y inversion.
+    """Mirror player half (Y=0-14) to AI half (Y=17-31) with Y inversion.
 
-    Player Y=15 (nearest buffer) <-> AI Y=18 (nearest buffer).
-    Formula: ai_y = 33 - y  (y=1->32, y=15->18).
+    Player Y=14 (nearest buffer) <-> AI Y=17 (nearest buffer).
+    Formula: ai_y = 31 - y  (y=0->31, y=14->17).
     """
     for y in range(PLAYER_Y_MIN, PLAYER_Y_MAX + 1):
-        ai_y = PLAYER_Y_MAX + AI_Y_MIN - y  # = 33 - y
+        ai_y = PLAYER_Y_MAX + AI_Y_MIN - y  # = 31 - y
         if ai_y < AI_Y_MIN or ai_y > AI_Y_MAX:
             continue
         for x in range(FIELD_WIDTH):

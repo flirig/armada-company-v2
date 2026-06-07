@@ -62,7 +62,7 @@ def _find_path(ship, target: GridPos, all_ships: list, battlefield) -> list[Grid
             nx, ny = pos.x + dx, pos.y + dy
             if (nx, ny) in visited:
                 continue
-            if nx < 0 or nx >= 15 or ny < 1 or ny > 16:  # Player zone only
+            if nx < 0 or nx >= 15 or ny < 0 or ny > 14:  # Player zone only
                 continue
 
             cell = battlefield.cells.get((nx, ny))
