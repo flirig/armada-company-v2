@@ -870,7 +870,9 @@ function hideVictory() {
 
 function resizeCanvas() {
   const gameArea = document.getElementById('game-area');
-  const w = gameArea.clientWidth - 8;
+  const containerWidth = gameArea.clientWidth;
+  const maxWidth = 540;
+  const w = Math.min(containerWidth - 8, maxWidth);
   if (w > 0) {
     canvas.style.width  = w + 'px';
     canvas.style.height = Math.round(w * CANVAS_HEIGHT / CANVAS_WIDTH) + 'px';
