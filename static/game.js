@@ -870,12 +870,27 @@ function hideVictory() {
 
 function resizeCanvas() {
   const gameArea = document.getElementById('game-area');
-  const containerWidth = gameArea.clientWidth;
-  const maxWidth = 540;
-  const w = Math.min(containerWidth - 8, maxWidth);
-  if (w > 0) {
+  const topBar = document.getElementById('mobile-top-bar');
+  const shipPanel = document.getElementById('mobile-ship-panel');
+
+  const availableHeight = window.innerHeight -
+                         (topBar ? topBar.offsetHeight : 0) -
+                         (shipPanel ? shipPanel.offsetHeight : 0) - 16;
+  const availableWidth = gameArea.clientWidth - 8;
+
+  // Calculate size to fit in available space while maintaining aspect ratio
+  const aspectRatio = CANVAS_WIDTH / CANVAS_HEIGHT;
+  let w = availableWidth;
+  let h = w / aspectRatio;
+
+  if (h > availableHeight) {
+    h = availableHeight;
+    w = h * aspectRatio;
+  }
+
+  if (w > 0 && h > 0) {
     canvas.style.width  = w + 'px';
-    canvas.style.height = Math.round(w * CANVAS_HEIGHT / CANVAS_WIDTH) + 'px';
+    canvas.style.height = h + 'px';
   }
 }
 
