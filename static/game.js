@@ -927,18 +927,28 @@ function renderMobileShipPanel() {
   const panel = document.getElementById('mobile-ship-panel');
   if (!panel) return;
 
-  if (selectedShipIndex === null || !gameState) {
+  if (!gameState) {
     panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'flex';
+
+  if (selectedShipIndex === null) {
+    document.getElementById('mobile-ship-name').textContent = 'Select a ship';
+    const stateBadge = document.getElementById('mobile-ship-state-badge');
+    stateBadge.textContent = '';
+    document.getElementById('mobile-ship-cells-row').innerHTML = '';
     return;
   }
 
   const ship = gameState.player_ships[selectedShipIndex];
-  if (!ship || ship.state === 'dead') {
-    panel.style.display = 'none';
+  if (!ship) {
+    document.getElementById('mobile-ship-name').textContent = 'Select a ship';
+    document.getElementById('mobile-ship-state-badge').textContent = '';
+    document.getElementById('mobile-ship-cells-row').innerHTML = '';
     return;
   }
-
-  panel.style.display = 'block';
   document.getElementById('mobile-ship-name').textContent = shipTypeName(ship);
   const stateBadge = document.getElementById('mobile-ship-state-badge');
   stateBadge.textContent = ship.state.toUpperCase();
