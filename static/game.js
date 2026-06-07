@@ -879,16 +879,11 @@ function hideVictory() {
 // ── Mobile helpers ─────────────────────────────────────────────────────────────
 
 function resizeCanvas() {
-  if (window.innerWidth <= 768) {
-    const gameArea = document.getElementById('game-area');
-    const w = gameArea.clientWidth - 8;
-    if (w > 0) {
-      canvas.style.width  = w + 'px';
-      canvas.style.height = Math.round(w * CANVAS_HEIGHT / CANVAS_WIDTH) + 'px';
-    }
-  } else {
-    canvas.style.width  = '';
-    canvas.style.height = '';
+  const gameArea = document.getElementById('game-area');
+  const w = gameArea.clientWidth - 8;
+  if (w > 0) {
+    canvas.style.width  = w + 'px';
+    canvas.style.height = Math.round(w * CANVAS_HEIGHT / CANVAS_WIDTH) + 'px';
   }
 }
 
@@ -925,7 +920,7 @@ function renderMobileShipPanel() {
   const panel = document.getElementById('mobile-ship-panel');
   if (!panel) return;
 
-  if (window.innerWidth > 768 || selectedShipIndex === null || !gameState) {
+  if (selectedShipIndex === null || !gameState) {
     panel.style.display = 'none';
     return;
   }
