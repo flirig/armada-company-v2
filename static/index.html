@@ -422,6 +422,11 @@
     .mobile-cell-btn.cell-dead   { opacity: 0.35; border-color: #333 !important; cursor: default; }
     .mobile-cell-btn.cell-fired  { background: rgba(160, 80, 0, 0.35); cursor: default; }
     .mobile-cell-btn.cell-no-supply { opacity: 0.5; cursor: default; }
+    .mobile-cell-btn.active {
+      box-shadow: 0 0 16px rgba(100, 200, 255, 0.8), inset 0 0 8px rgba(100, 200, 255, 0.4);
+      border-color: #4accff;
+      background: rgba(100, 200, 255, 0.15) !important;
+    }
     .mobile-cell-btn:active:not(.cell-dead):not(.cell-fired):not(.cell-no-supply) { transform: scale(0.94); }
 
     .mcb-label { font-size: 14px; font-weight: bold; }
