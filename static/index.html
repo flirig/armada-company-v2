@@ -28,6 +28,29 @@
       -webkit-overflow-scrolling: touch;
     }
 
+    @media (min-width: 1024px) {
+      body {
+        flex-direction: row;
+      }
+
+      #mobile-top-bar {
+        display: none !important;
+      }
+
+      #mobile-ship-panel {
+        display: none !important;
+      }
+
+      #game-area {
+        flex-direction: column;
+        padding: 12px;
+      }
+
+      #sidebar {
+        display: flex !important;
+      }
+    }
+
     #canvas {
       border: 2px solid #2a4a6a;
       cursor: crosshair;
