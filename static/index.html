@@ -14,6 +14,7 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
+      height: 100dvh;
       overflow: hidden;
     }
 
@@ -298,13 +299,15 @@
       background: #0d1f30;
       border-bottom: 2px solid #2a4a6a;
       padding: 8px 12px;
-      padding-top: max(8px, calc(8px + env(safe-area-inset-top)));
+      padding-top: calc(8px + env(safe-area-inset-top));
       align-items: center;
       justify-content: center;
       gap: 8px;
       flex-wrap: wrap;
       flex-shrink: 0;
       width: 100%;
+      position: relative;
+      z-index: 10;
     }
 
     #mobile-turn-info {
@@ -344,14 +347,16 @@
       flex-direction: column;
       background: #0d1f30;
       border-top: 2px solid #2a4a6a;
-      padding: 8px 12px 10px;
-      padding-bottom: max(10px, calc(10px + env(safe-area-inset-bottom)));
+      padding: 8px 12px;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom));
       flex-shrink: 0;
       width: 100%;
       align-items: center;
       gap: 8px;
       min-height: 120px;
       justify-content: flex-start;
+      position: relative;
+      z-index: 10;
     }
 
     #mobile-ship-header {
