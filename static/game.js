@@ -31,7 +31,6 @@ const MODE_TARGETING_MISSILE = 'targeting_missile';
 let sessionId        = null;
 let gameState        = null;
 let selectedShipIndex = null;
-let activeModuleIndex = null; // HUD: which module is currently active
 let hoveredCell       = null;
 let canvas, ctx;
 let actionMode       = MODE_NONE;
@@ -79,7 +78,6 @@ async function startNewGame() {
   hideVictory();
   setStatus('Starting new game...', 'info');
   selectedShipIndex = null;
-  activeModuleIndex = null;
   actionMode = MODE_NONE;
   pendingFireInfo = null;
   validMoveCells = [];
@@ -88,7 +86,7 @@ async function startNewGame() {
     const data = await apiPost('/game/new', { admiral_profile: 'balanced' });
     sessionId = data.session_id;
     applyState(data.state);
-    setStatus('Game started! Click a ship to select, then use HUD to activate modules.', 'ok');
+    setStatus('Game started! Click a ship to select, then act.', 'ok');
   } catch (e) {
     setStatus('Failed to connect to server: ' + e.message, 'err');
   }
@@ -172,7 +170,6 @@ async function sendFire(shipIndex, cellIndex) {
 async function sendEndTurn() {
   if (!gameState || gameState.phase !== 'player') return;
   setStatus('Ending turn...', 'info');
-  activeModuleIndex = null;
   actionMode = MODE_NONE;
   pendingFireInfo = null;
   const res = await sendAction({ type: 'end_turn' });
@@ -183,13 +180,11 @@ async function sendEndTurn() {
 }
 
 function cancelMode() {
-  activeModuleIndex = null;
   actionMode = MODE_NONE;
   pendingFireInfo = null;
   validMoveCells = [];
   setStatus('Action cancelled.', 'info');
   renderCanvas();
-  renderMobileShipPanel();
 }
 
 // ── State application ─────────────────────────────────────────────────────────
@@ -293,7 +288,7 @@ function renderShipList() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         selectedShipIndex = idx;
-        onModuleClick(idx, ci);
+        sendFire(idx, ci);
       });
       fireRow.appendChild(btn);
     });
@@ -302,7 +297,6 @@ function renderShipList() {
     card.addEventListener('click', () => {
       if (isDead) return;
       selectedShipIndex = (selectedShipIndex === idx) ? null : idx;
-      activeModuleIndex = null;
       actionMode = MODE_NONE;
       renderShipList();
       renderCanvas();
@@ -782,17 +776,28 @@ function onCanvasClick(e) {
 
   if (found !== null) {
     const ship = gameState.player_ships[found];
+    const cell = ship.cells[cellIndex];
 
-    // Click on ship: select it (or deselect if already selected)
-    selectedShipIndex = (selectedShipIndex === found) ? null : found;
-    activeModuleIndex = null;
-    actionMode = MODE_NONE;
-    validMoveCells = [];
-    renderShipList();
-    renderCanvas();
-    renderMobileShipPanel();
-    if (selectedShipIndex !== null)
-      setStatus(`Ship selected. Click a module in the HUD to activate it.`, 'info');
+    // Click on bridge (cellIndex === 0) = enter move mode
+    if (cellIndex === 0 && ship.state !== 'dead' && ship.state !== 'dying' && !ship.moved_this_turn) {
+      selectedShipIndex = found;
+      validMoveCells = getReachableCells(ship);
+      actionMode = MODE_MOVE_PATH;
+      setStatus(`Click green cells to move (startup: ${ship.cells.length} fuel). ESC to cancel.`, 'info');
+      renderCanvas();
+      renderShipList();
+    }
+    // Regular selection
+    else {
+      selectedShipIndex = (selectedShipIndex === found) ? null : found;
+      actionMode = MODE_NONE;
+      validMoveCells = [];
+      renderShipList();
+      renderCanvas();
+      renderMobileShipPanel();
+      if (selectedShipIndex !== null)
+        setStatus(`Ship selected. Use HUD buttons to fire weapons.`, 'info');
+    }
   }
 }
 
@@ -939,16 +944,13 @@ function renderMobileShipPanel() {
     const isDead    = cell.hp === 0;
     const isFired   = !!cell.fired_this_turn;
     const isWeapon  = cell.type === 'weapon';
-    const isBridge  = ci === 0;
     const noSupply  = isWeapon && gameState.budget.supply === 0;
-    const isActive  = activeModuleIndex === ci;
 
     const btn = document.createElement('button');
     let cls = `mobile-cell-btn type-${cell.type}`;
     if (isDead)     cls += ' cell-dead';
     else if (isFired)    cls += ' cell-fired';
     else if (noSupply)   cls += ' cell-no-supply';
-    if (isActive)   cls += ' active';
     btn.className = cls;
 
     const labelEl = document.createElement('span');
@@ -978,51 +980,10 @@ function renderMobileShipPanel() {
     btn.appendChild(typeEl);
     btn.appendChild(hpEl);
 
-    // Module click: toggle activation
-    if (!isDead && gameState.phase === 'player') {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        onModuleClick(selectedShipIndex, ci);
-      });
+    if (isWeapon && !isDead && !isFired && !noSupply) {
+      btn.addEventListener('click', () => sendFire(selectedShipIndex, ci));
     }
 
     row.appendChild(btn);
   });
-}
-
-function onModuleClick(shipIndex, cellIndex) {
-  const ship = gameState.player_ships[shipIndex];
-  if (!ship) return;
-  const cell = ship.cells[cellIndex];
-  const isDead = cell.hp === 0;
-  const isBridge = cellIndex === 0;
-  const isWeapon = cell.type === 'weapon';
-
-  // Deactivate if clicking the same module again
-  if (activeModuleIndex === cellIndex) {
-    activeModuleIndex = null;
-    actionMode = MODE_NONE;
-    validMoveCells = [];
-    setStatus('Action cancelled.', 'info');
-    renderMobileShipPanel();
-    renderCanvas();
-    return;
-  }
-
-  // Deactivate previous module
-  activeModuleIndex = cellIndex;
-
-  // Bridge activation: enter move mode
-  if (isBridge && ship.state !== 'dead' && ship.state !== 'dying' && !ship.moved_this_turn) {
-    validMoveCells = getReachableCells(ship);
-    actionMode = MODE_MOVE_PATH;
-    setStatus(`Move mode active. Click green cells to move (startup: ${ship.cells.length} fuel). Click bridge again to cancel.`, 'info');
-    renderMobileShipPanel();
-    renderCanvas();
-  }
-  // Weapon activation: enter targeting mode
-  else if (isWeapon && !isDead && !cell.fired_this_turn && gameState.budget.supply > 0) {
-    sendFire(shipIndex, cellIndex);
-    renderMobileShipPanel();
-  }
 }
