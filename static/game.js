@@ -776,6 +776,8 @@ function onCanvasClick(e) {
 
   if (found !== null) {
     const ship = gameState.player_ships[found];
+    const cell = ship.cells[cellIndex];
+
     // Click on bridge (cellIndex === 0) = enter move mode
     if (cellIndex === 0 && ship.state !== 'dead' && ship.state !== 'dying' && !ship.moved_this_turn) {
       selectedShipIndex = found;
@@ -784,8 +786,15 @@ function onCanvasClick(e) {
       setStatus(`Click green cells to move (startup: ${ship.cells.length} fuel). ESC to cancel.`, 'info');
       renderCanvas();
       renderShipList();
-    } else {
-      // Regular selection
+    }
+    // Click on weapon cell = fire if possible
+    else if (cell.type === 'weapon' && cell.module && cell.hp > 0 && !cell.fired_this_turn && gameState.budget.supply > 0 && ship.state !== 'dead' && ship.state !== 'dying') {
+      selectedShipIndex = found;
+      sendFire(found, cellIndex);
+      renderShipList();
+    }
+    // Regular selection
+    else {
       selectedShipIndex = (selectedShipIndex === found) ? null : found;
       actionMode = MODE_NONE;
       validMoveCells = [];
@@ -793,7 +802,7 @@ function onCanvasClick(e) {
       renderCanvas();
       renderMobileShipPanel();
       if (selectedShipIndex !== null)
-        setStatus(`Ship selected. Click bridge to move, buttons to fire.`, 'info');
+        setStatus(`Ship selected. Click bridge to move, click weapon to fire.`, 'info');
     }
   }
 }
