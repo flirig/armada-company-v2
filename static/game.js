@@ -869,14 +869,18 @@ function hideVictory() {
 // ── Mobile helpers ─────────────────────────────────────────────────────────────
 
 function resizeCanvas() {
-  const gameArea = document.getElementById('game-area');
   const topBar = document.getElementById('mobile-top-bar');
   const shipPanel = document.getElementById('mobile-ship-panel');
 
-  const availableHeight = window.innerHeight -
-                         (topBar ? topBar.offsetHeight : 0) -
-                         (shipPanel ? shipPanel.offsetHeight : 0) - 16;
-  const availableWidth = gameArea.clientWidth - 8;
+  const topBarHeight = topBar ? topBar.offsetHeight : 0;
+  const shipPanelHeight = shipPanel ? shipPanel.offsetHeight : 0;
+
+  // Available space for canvas: window height minus top/bottom bars
+  const totalBarsHeight = topBarHeight + shipPanelHeight + 8;
+  const availableHeight = Math.max(100, window.innerHeight - totalBarsHeight);
+
+  // Available width (full window width)
+  const availableWidth = Math.max(100, window.innerWidth - 8);
 
   // Calculate size to fit in available space while maintaining aspect ratio
   const aspectRatio = CANVAS_WIDTH / CANVAS_HEIGHT;
