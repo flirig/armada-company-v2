@@ -28,28 +28,6 @@
       -webkit-overflow-scrolling: touch;
     }
 
-    @media (min-width: 1024px) {
-      body {
-        flex-direction: row;
-      }
-
-      #mobile-top-bar {
-        display: none !important;
-      }
-
-      #mobile-ship-panel {
-        display: none !important;
-      }
-
-      #game-area {
-        flex-direction: column;
-        padding: 12px;
-      }
-
-      #sidebar {
-        display: flex !important;
-      }
-    }
 
     #canvas {
       border: 2px solid #2a4a6a;
@@ -59,15 +37,7 @@
     }
 
     #sidebar {
-      width: 260px;
-      min-width: 260px;
-      background: #0d1f30;
-      border-left: 2px solid #2a4a6a;
-      display: none;
-      flex-direction: column;
-      padding: 12px;
-      gap: 10px;
-      overflow-y: auto;
+      display: none !important;
     }
 
     .panel {
@@ -422,6 +392,10 @@
     .mobile-cell-btn.cell-dead   { opacity: 0.35; border-color: #333 !important; cursor: default; }
     .mobile-cell-btn.cell-fired  { background: rgba(160, 80, 0, 0.35); cursor: default; }
     .mobile-cell-btn.cell-no-supply { opacity: 0.5; cursor: default; }
+    .mobile-cell-btn.active {
+      box-shadow: 0 0 12px rgba(100, 200, 255, 0.8), inset 0 0 6px rgba(100, 200, 255, 0.4);
+      border-color: #4accff !important;
+    }
     .mobile-cell-btn:active:not(.cell-dead):not(.cell-fired):not(.cell-no-supply) { transform: scale(0.94); }
 
     .mcb-label { font-size: 14px; font-weight: bold; }
